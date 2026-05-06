@@ -5,10 +5,11 @@
 //   pulling  → loading state while bureau call runs
 //   done     → FICO + expiry shown to borrower
 //
-// Pre-fill sources: /auth/me (name, email) + /clients/me (phone, address,
-// city). Borrower can still override anything in the form step before
-// committing — review-then-consent gives them a chance to spot mismatches
-// before the bureau is hit.
+// Pre-fill sources: /auth/me (name) + /clients/me (address, city). Phone
+// and email aren't part of iSoftPull's required fields, so we skip them
+// here — they're already on record from sign-up. Borrower can override
+// anything in the form step before committing; review-then-consent gives
+// them a chance to spot mismatches before the bureau is hit.
 
 import { useEffect, useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -65,6 +66,11 @@ const US_STATES: { code: string; name: string }[] = [
   { code: "WI", name: "Wisconsin" },      { code: "WY", name: "Wyoming" },
 ];
 
+// Form fields = exactly what iSoftPull's API requires (per their docs).
+// We deliberately don't collect phone/email here — those live on the
+// User (Clerk) and Client records and aren't sent to the bureau. SSN
+// is the full 9 digits; the backend forwards it to iSoftPull and
+// persists only the last 4 to credit_pulls.last4_ssn.
 interface Form {
   legal_first_name: string;
   legal_last_name: string;
@@ -73,9 +79,7 @@ interface Form {
   city: string;
   state: string;
   zip: string;
-  phone: string;
-  email: string;
-  last4_ssn: string;
+  ssn: string;
 }
 
 const EMPTY_FORM: Form = {
@@ -86,9 +90,7 @@ const EMPTY_FORM: Form = {
   city: "",
   state: "",
   zip: "",
-  phone: "",
-  email: "",
-  last4_ssn: "",
+  ssn: "",
 };
 
 function splitName(full: string | undefined | null): { first: string; last: string } {
@@ -142,8 +144,6 @@ export default function CreditPull() {
       const split = splitName(user?.name);
       if (!next.legal_first_name && split.first) next.legal_first_name = split.first;
       if (!next.legal_last_name && split.last) next.legal_last_name = split.last;
-      if (!next.email && user?.email) next.email = user.email;
-      if (!next.phone && client?.phone) next.phone = client.phone;
       if (!next.street && client?.address) next.street = client.address;
       if (!next.city && client?.city) next.city = client.city;
       return next;
@@ -160,9 +160,7 @@ export default function CreditPull() {
       form.city.trim().length > 0 &&
       form.state.length === 2 &&
       /^\d{5}(-\d{4})?$/.test(form.zip) &&
-      form.phone.replace(/\D/g, "").length >= 10 &&
-      /\S+@\S+\.\S+/.test(form.email) &&
-      form.last4_ssn.length === 4
+      form.ssn.length === 9
     );
   }, [form]);
 
@@ -460,31 +458,20 @@ function FormStage({
         placeholder="12345"
       />
 
-      <SectionLabel>Contact</SectionLabel>
-      <Field
-        label="Phone"
-        value={form.phone}
-        onChangeText={(v) => onChange({ ...form, phone: v })}
-        keyboardType="phone-pad"
-      />
-      <Field
-        label="Email"
-        value={form.email}
-        onChangeText={(v) => onChange({ ...form, email: v })}
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
-
       <SectionLabel>Identity</SectionLabel>
       <Field
-        label="Last 4 of SSN"
-        value={form.last4_ssn}
+        label="Social Security Number"
+        placeholder="9 digits, no dashes"
+        value={form.ssn}
         onChangeText={(v) =>
-          onChange({ ...form, last4_ssn: v.replace(/\D/g, "").slice(0, 4) })
+          onChange({ ...form, ssn: v.replace(/\D/g, "").slice(0, 9) })
         }
         keyboardType="number-pad"
         secureTextEntry
       />
+      <Text style={{ fontSize: 11, color: t.ink3, marginTop: -6, marginBottom: 4, lineHeight: 15 }}>
+        Sent to the bureau over TLS. Only the last 4 digits are saved on file.
+      </Text>
 
       <View style={{ marginTop: 12 }}>
         <QButton
@@ -537,9 +524,7 @@ function ReviewStage({
         value={stateName ? `${form.state} — ${stateName}` : form.state}
       />
       <ReviewRow label="ZIP" value={form.zip} />
-      <ReviewRow label="Phone" value={form.phone} />
-      <ReviewRow label="Email" value={form.email} />
-      <ReviewRow label="Last 4 of SSN" value={`••• ${form.last4_ssn}`} last />
+      <ReviewRow label="SSN" value={form.ssn ? `•••-••-${form.ssn.slice(-4)}` : "—"} last />
 
       <View style={{ marginTop: 14, gap: 8 }}>
         <QButton label="Continue to Consent" onPress={onContinue} />
