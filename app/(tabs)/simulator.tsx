@@ -83,6 +83,7 @@ export default function Simulator() {
   const [brvText, setBrvText] = useState("400000");
   const [rehabText, setRehabText] = useState("80000");
   const [payoffText, setPayoffText] = useState("0");
+  const [monthlyRentText, setMonthlyRentText] = useState("");
   const [points, setPoints] = useState(1);
   const initialLtv = Math.min(eligibility.maxLTV * 100 || 65, 65);
   const [ltvPct, setLtvPct] = useState(initialLtv);
@@ -92,6 +93,7 @@ export default function Simulator() {
   const brvNum = Number(brvText.replace(/[^0-9.]/g, "")) || 0;
   const rehabNum = Number(rehabText.replace(/[^0-9.]/g, "")) || 0;
   const payoffNum = Number(payoffText.replace(/[^0-9.]/g, "")) || 0;
+  const monthlyRentNum = Number(monthlyRentText.replace(/[^0-9.]/g, "")) || 0;
   const requestedLoanNum =
     requestedLoanText != null ? Number(requestedLoanText.replace(/[^0-9.]/g, "")) || 0 : null;
   const isBlocked = eligibility.tier === "blocked";
@@ -122,6 +124,7 @@ export default function Simulator() {
       rehabBudget: reno ? rehabNum : undefined,
       requestedLoanAmount: requestedLoanNum ?? undefined,
       ltvTierCap: eligibility.maxLTV > 0 ? eligibility.maxLTV : undefined,
+      monthlyRent: productKey === "dscr" && monthlyRentNum > 0 ? monthlyRentNum : undefined,
     });
   }, [
     isBlocked,
@@ -137,6 +140,7 @@ export default function Simulator() {
     brvNum,
     rehabNum,
     requestedLoanNum,
+    monthlyRentNum,
     eligibility.maxLTV,
   ]);
 
@@ -337,6 +341,23 @@ export default function Simulator() {
                     onChange={setPayoffText}
                     num={payoffNum}
                     placeholder="0"
+                  />
+                </>
+              ) : null}
+              {productKey === "dscr" ? (
+                <>
+                  <View style={{ height: 12 }} />
+                  <ValueInput
+                    label="Monthly rent"
+                    hint={
+                      monthlyRentNum > 0
+                        ? "Drives DSCR + cash flow"
+                        : "Auto ≈ 0.85% of loan if blank"
+                    }
+                    value={monthlyRentText}
+                    onChange={setMonthlyRentText}
+                    num={monthlyRentNum}
+                    placeholder="4250"
                   />
                 </>
               ) : null}

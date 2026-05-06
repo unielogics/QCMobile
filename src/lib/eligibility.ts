@@ -199,6 +199,12 @@ export interface SimulatorInputs {
   requestedLoanAmount?: number;
   /** Tier-derived LTV cap from computeEligibility.maxLTV. */
   ltvTierCap?: number;
+  /**
+   * DSCR — caller-provided monthly rent. When present, used directly to
+   * compute DSCR + cash flow. When absent, falls back to a 0.85% of
+   * loan-amount estimate. Ignored on non-amortized products.
+   */
+  monthlyRent?: number;
 }
 
 export interface SimulatorOutputs {
@@ -354,10 +360,14 @@ export function computeSimulator(input: SimulatorInputs): SimulatorOutputs {
   let dscr: number | null = null;
   let cashFlow: number | null = null;
   if (isAmortized) {
-    rentEstimate = loanAmount * 0.0085;
-    const taxIns = rentEstimate * 0.18;
-    cashFlow = rentEstimate - monthlyPI - taxIns;
-    dscr = rentEstimate / (monthlyPI + taxIns);
+    // Caller-provided rent wins; fall back to the 0.85%-of-loan estimate.
+    const rent = input.monthlyRent != null && input.monthlyRent > 0
+      ? input.monthlyRent
+      : loanAmount * 0.0085;
+    rentEstimate = rent;
+    const taxIns = rent * 0.18;
+    cashFlow = rent - monthlyPI - taxIns;
+    dscr = rent / (monthlyPI + taxIns);
   }
 
   const pointsCost = loanAmount * (discountPoints / 100);
