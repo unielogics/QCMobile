@@ -87,6 +87,12 @@ export const QC_TOKENS: Record<ThemeMode, QCTokens> = {
   },
 };
 
+export type Density = "comfortable" | "compact";
+export const QC_DENSITY: Record<Density, { pad: number; gap: number; cardPad: number; rowH: number; fs: number }> = {
+  comfortable: { pad: 16, gap: 14, cardPad: 18, rowH: 56, fs: 1.0 },
+  compact:     { pad: 12, gap: 10, cardPad: 14, rowH: 48, fs: 0.94 },
+};
+
 export const QC_FMT = {
   usd: (n: number, dec = 0) =>
     n.toLocaleString("en-US", {

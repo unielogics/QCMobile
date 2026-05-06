@@ -2,8 +2,28 @@
 
 import type {
   AITaskPriority, AITaskSource, AITaskStatus, BrokerTier, CalendarEventKind,
-  DocStatus, LoanStage, LoanType, MessageFrom, PropertyType,
+  DocStatus, LoanStage, LoanType, MessageFrom, PropertyType, Role,
 } from "./enums.generated";
+
+export interface User {
+  id: string;
+  clerk_id: string;
+  email: string;
+  name: string;
+  role: Role;
+}
+
+export interface RateSKU {
+  id: string;
+  label: string;
+  loan_type: LoanType;
+  rate: number;
+  points: number;
+  term: string;
+  min_fico: number;
+  max_ltv: number;
+  delta_bps: number;
+}
 
 export interface Loan {
   id: string;
@@ -48,4 +68,107 @@ export interface CreditPullStatus {
   fico: number | null;
   pulled_at: string | null;
   expires_at: string | null;
+}
+
+export interface Activity {
+  id: string;
+  loan_id: string | null;
+  actor_id: string | null;
+  actor_label: string | null;
+  kind: string;
+  summary: string;
+  payload: Record<string, unknown> | null;
+  occurred_at: string;
+}
+
+export interface Document {
+  id: string;
+  loan_id: string;
+  name: string;
+  category: string | null;
+  s3_key: string | null;
+  status: DocStatus;
+  requested_on: string | null;
+  received_on: string | null;
+  verified_at: string | null;
+  verified_by: string | null;
+}
+
+// /documents/upload-init returns either a presigned S3 URL (production) or
+// null upload_url (dev mode without AWS keys — backend just records metadata).
+export interface DocumentUploadInitResponse {
+  document_id: string;
+  upload_url: string | null;
+  s3_key: string;
+}
+
+export interface AIChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AIChatRequest {
+  messages: AIChatTurn[];
+  loan_id?: string | null;
+}
+
+export interface AIChatResponse {
+  reply: string;
+  model: string;
+  used_stub: boolean;
+}
+
+// Calendar (mirrors qcdesktop/src/lib/types.ts CalendarEvent)
+export interface CalendarEvent {
+  id: string;
+  loan_id: string | null;
+  kind: CalendarEventKind;
+  title: string;
+  who: string | null;
+  starts_at: string;
+  duration_min: number | null;
+  priority: "low" | "medium" | "high" | null;
+}
+
+// Reports/dashboard
+export interface StageBreakdown {
+  stage: LoanStage;
+  count: number;
+  value: number;
+}
+export interface TypeBreakdown {
+  type: string;
+  count: number;
+  value: number;
+}
+export interface DashboardReport {
+  funded_ytd: number;
+  funded_ytd_delta: number | null;
+  pipeline_value: number;
+  pipeline_count: number;
+  avg_close_days: number | null;
+  avg_close_delta: number | null;
+  pull_through: number | null;
+  pull_through_delta: number | null;
+  by_stage: StageBreakdown[];
+  by_type: TypeBreakdown[];
+}
+
+// FRED-driven market rates (mirrors qcdesktop)
+export interface FredObservation {
+  date: string;
+  value: number | null;
+}
+export interface FredSeriesSummary {
+  series_id: string;
+  label: string;
+  description: string;
+  current_value: number | null;
+  current_date: string | null;
+  previous_value: number | null;
+  delta_bps: number | null;
+  spread_bps: number;
+  estimated_rate: number | null;
+  history_7d: FredObservation[];
+  history_30d: FredObservation[];
 }
