@@ -195,35 +195,31 @@ export default function Simulator() {
         )
       ) : (
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
-        {/* Eligibility banner */}
-        {eligibility.banner ? (
-          <View style={{ marginBottom: 12 }}>
-            <EligibilityBannerCard
-              banner={eligibility.banner}
-              onCta={(target) => {
-                if (target === "credit-pull") {
-                  // Carry the banner kind through as a mode hint so
-                  // /credit-pull renders the right copy and skips the
-                  // "you already have a valid pull" gate.
-                  const mode =
-                    eligibility.banner?.kind === "credit-expired"
-                      ? "expired"
-                      : eligibility.banner?.kind === "credit-expiring"
-                        ? "refresh"
-                        : undefined;
-                  router.push({ pathname: "/credit-pull", params: mode ? { mode } : undefined });
-                }
-                if (target === "vault") router.push("/(tabs)/vault");
-                if (target === "new-loan") router.push("/(tabs)");
-              }}
-            />
-          </View>
-        ) : null}
-
-        {/* Credit summary — headline FICO + tier + bullets + qualifying products */}
-        {credit && creditSummary ? (
-          <CreditSummaryCard summary={creditSummary} />
-        ) : null}
+        {/* Compact credit + experience header. Collapsed by default so
+            the calculator sits at the top of the screen. Tap to expand
+            the full summary + any eligibility banner. */}
+        <View style={{ marginBottom: 12 }}>
+          <CompactCreditHeader
+            summary={creditSummary ?? null}
+            fico={credit?.fico ?? null}
+            propertyCount={propertyCount}
+            hasYearOfOwnership={hasYearOfOwnership}
+            banner={eligibility.banner ?? null}
+            onBannerCta={(target) => {
+              if (target === "credit-pull") {
+                const mode =
+                  eligibility.banner?.kind === "credit-expired"
+                    ? "expired"
+                    : eligibility.banner?.kind === "credit-expiring"
+                      ? "refresh"
+                      : undefined;
+                router.push({ pathname: "/credit-pull", params: mode ? { mode } : undefined });
+              }
+              if (target === "vault") router.push("/(tabs)/vault");
+              if (target === "new-loan") router.push("/(tabs)");
+            }}
+          />
+        </View>
 
         {/* Product selector */}
         <View style={{ flexDirection: "row", gap: 4, backgroundColor: t.chip, borderRadius: 12, padding: 3, marginBottom: 14 }}>
@@ -723,6 +719,113 @@ function EligibilityBannerCard({
           ) : null}
         </View>
       </View>
+    </Card>
+  );
+}
+
+// ── Compact credit + experience header ───────────────────────────────────
+// Borrower's vital stats — FICO, tier, properties owned, any eligibility
+// banner — all in one tappable card. Collapsed by default so the
+// calculator dominates the screen. Mirrors qcdesktop CollapsibleCreditSummary.
+function CompactCreditHeader({
+  summary,
+  fico,
+  propertyCount,
+  hasYearOfOwnership,
+  banner,
+  onBannerCta,
+}: {
+  summary: import("@/lib/types").CreditSummary | null;
+  fico: number | null;
+  propertyCount: number;
+  hasYearOfOwnership: boolean;
+  banner: EligibilityBanner | null;
+  onBannerCta: (target: NonNullable<EligibilityBanner["ctaTarget"]>) => void;
+}) {
+  const { t } = useTheme();
+  const [open, setOpen] = useState(false);
+
+  const expLabel =
+    propertyCount === 0
+      ? "no experience yet"
+      : `${propertyCount} ${propertyCount === 1 ? "property" : "properties"}${
+          hasYearOfOwnership ? " · 1+ yr held" : ""
+        }`;
+
+  const tierLabel = summary?.tier ?? (fico == null ? "no pull" : "tier unknown");
+  const hasBanner = banner != null;
+
+  return (
+    <Card pad={0} style={{ overflow: "hidden" }}>
+      <Pressable
+        onPress={() => setOpen((o) => !o)}
+        style={({ pressed }) => ({
+          paddingVertical: 12,
+          paddingHorizontal: 14,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Text
+          style={{
+            fontSize: 22,
+            fontWeight: "800",
+            color: fico == null ? t.ink3 : t.ink,
+            fontVariant: ["tabular-nums"],
+            minWidth: 40,
+            textAlign: "center",
+          }}
+        >
+          {fico ?? "—"}
+        </Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            style={{
+              fontSize: 10,
+              fontWeight: "700",
+              color: t.ink3,
+              letterSpacing: 0.8,
+              textTransform: "uppercase",
+            }}
+            numberOfLines={1}
+          >
+            Credit · {tierLabel}
+          </Text>
+          <Text
+            style={{ fontSize: 12, color: t.ink2, marginTop: 2 }}
+            numberOfLines={1}
+          >
+            {expLabel}
+            {hasBanner ? (
+              <Text style={{ color: t.warn, fontWeight: "700" }}>  ·  ⚠ action</Text>
+            ) : null}
+          </Text>
+        </View>
+        <Icon name={open ? "chevU" : "chevD"} size={14} color={t.ink3} />
+      </Pressable>
+      {open ? (
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: t.line,
+            padding: 14,
+            gap: 12,
+          }}
+        >
+          {hasBanner ? (
+            <EligibilityBannerCard banner={banner} onCta={onBannerCta} />
+          ) : null}
+          {summary ? (
+            <CreditSummaryCard summary={summary} />
+          ) : (
+            <Text style={{ fontSize: 12, color: t.ink3 }}>
+              No credit summary yet. Run a soft pull to see your file.
+            </Text>
+          )}
+        </View>
+      ) : null}
     </Card>
   );
 }
