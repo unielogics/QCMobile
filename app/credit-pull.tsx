@@ -27,7 +27,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Card, Pill, QButton, SectionLabel } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
-import { useCurrentUser, useMyClient, useMyCredit, useStartCreditPull } from "@/hooks/useApi";
+import { useCreditSummary, useCurrentUser, useMyClient, useMyCredit, useStartCreditPull } from "@/hooks/useApi";
 import { ApiError } from "@/lib/api";
 
 type Stage = "form" | "review" | "consent" | "pulling" | "done";
@@ -697,7 +697,7 @@ function DoneStage({
   data,
   onClose,
 }: {
-  data: { fico?: number | null; expires_at?: string | null } | null;
+  data: { id?: string; fico?: number | null; expires_at?: string | null } | null;
   onClose: () => void;
 }) {
   const { t } = useTheme();
@@ -751,6 +751,7 @@ function DoneStage({
       <Text style={{ color: t.ink3, fontSize: 12, textAlign: "center", marginTop: 4 }}>
         Valid through {data?.expires_at ? new Date(data.expires_at).toLocaleDateString() : "—"}
       </Text>
+      {data?.id ? <CreditBriefing pullId={data.id} /> : null}
       <Text style={{ color: t.ink3, fontSize: 12, textAlign: "center", marginTop: 14, lineHeight: 17 }}>
         Soft pull — no impact on your credit. We'll use this score to surface accurate rates and LTV
         tiers across the simulator.
@@ -759,6 +760,57 @@ function DoneStage({
         <QButton label="Done" onPress={onClose} />
       </View>
     </Card>
+  );
+}
+
+// Brief "what's good vs what's a concern" summary for the done stage.
+// Mirrors qcdesktop CreditBriefing — label-only, max 3 of each kind.
+function CreditBriefing({ pullId }: { pullId: string }) {
+  const { t } = useTheme();
+  const { data: summary, isLoading } = useCreditSummary(pullId);
+
+  if (isLoading) {
+    return (
+      <Text style={{ color: t.ink3, fontSize: 12, textAlign: "center", marginTop: 14 }}>
+        Loading briefing…
+      </Text>
+    );
+  }
+  if (!summary) return null;
+
+  const positives = summary.bullets.filter((b) => b.kind === "positive").slice(0, 3);
+  const warns = summary.bullets.filter((b) => b.kind === "warn").slice(0, 3);
+  if (positives.length === 0 && warns.length === 0) return null;
+
+  return (
+    <View style={{ marginTop: 16, gap: 12 }}>
+      {positives.length > 0 && (
+        <View>
+          <Text style={{ fontSize: 10.5, fontWeight: "700", color: t.profit, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>
+            What's good
+          </Text>
+          {positives.map((b, i) => (
+            <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.profit, marginTop: 6 }} />
+              <Text style={{ flex: 1, fontSize: 13, color: t.ink2, lineHeight: 18 }}>{b.label}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+      {warns.length > 0 && (
+        <View>
+          <Text style={{ fontSize: 10.5, fontWeight: "700", color: t.warn, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>
+            Things to watch
+          </Text>
+          {warns.map((b, i) => (
+            <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.warn, marginTop: 6 }} />
+              <Text style={{ flex: 1, fontSize: 13, color: t.ink2, lineHeight: 18 }}>{b.label}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
   );
 }
 
