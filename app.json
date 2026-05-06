@@ -46,6 +46,9 @@
     ],
     "experiments": {
       "typedRoutes": false
+    },
+    "extra": {
+      "apiUrl": "https://api.qualifiedcommercial.com"
     }
   }
 }

@@ -1,9 +1,14 @@
 import Constants from "expo-constants";
 
+// Production-safe default — Expo Go on a real device, EAS builds, and App
+// Store binaries all hit the deployed backend without any extra config.
+// Override locally via .env (`EXPO_PUBLIC_API_URL=http://192.168.x.x:8000`
+// for a LAN-reachable host) or app.json `extra.apiUrl`. NEVER default to
+// localhost — mobile devices can't reach the build host's loopback.
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL ??
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
-  "http://localhost:8000";
+  "https://api.qualifiedcommercial.com";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public body?: unknown) {

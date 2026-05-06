@@ -1,10 +1,22 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { AppState, type AppStateStatus } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { useEffect } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { ThemeProvider } from "@/design-system/ThemeProvider";
+
+// React Query's `refetchOnWindowFocus` does nothing in React Native unless
+// focusManager is told what counts as "focus". Hook it up to AppState so
+// foregrounding the app re-validates queries — this is what makes a freshly
+// demoted user (e.g. via demote_to_client.py) stop seeing super-admin chrome
+// the next time they reopen the app instead of waiting for staleTime.
+focusManager.setEventListener((handleFocus) => {
+  const sub = AppState.addEventListener("change", (status: AppStateStatus) => {
+    handleFocus(status === "active");
+  });
+  return () => sub.remove();
+});
 
 const PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 

@@ -171,4 +171,9 @@ export interface FredSeriesSummary {
   estimated_rate: number | null;
   history_7d: FredObservation[];
   history_30d: FredObservation[];
+  // Variable-window history (request via /fred/series?days=N). Optional so
+  // older backend deploys still validate. The chart component prefers
+  // `history` when present and falls back to `history_30d` / `history_7d`.
+  history?: FredObservation[];
+  history_days?: number;
 }

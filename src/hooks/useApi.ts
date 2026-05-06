@@ -36,17 +36,30 @@ function useCacheKey() {
   return useSession((s) => s.devUser);
 }
 
-export function useMe() {
+// /auth/me — canonical "who am I?". Mirrors qcdesktop's useCurrentUser:
+// short staleTime + refetchOnWindowFocus so backend-side role changes
+// (demote_to_client.py, Settings → Team) propagate within a tab-switch
+// instead of taking 5 minutes.
+//
+// In React Native `refetchOnWindowFocus` only does anything when the app
+// has wired focusManager to AppState — see app/_layout.tsx. Without that
+// it's a no-op, but harmless.
+export function useCurrentUser() {
   const fetcher = useAuthedFetch();
   const { isLoaded, isSignedIn } = useAuth();
   return useQuery({
-    queryKey: ["me", isSignedIn],
+    queryKey: ["auth-me", isSignedIn],
     queryFn: () => fetcher<User>("/auth/me"),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: true,
     retry: false,
     enabled: isLoaded,
   });
 }
+
+// Backward-compat alias — older mobile screens import { useMe }. New code
+// should use useCurrentUser to stay aligned with desktop naming.
+export const useMe = useCurrentUser;
 
 export function useRates() {
   const fetcher = useAuthedFetch();
@@ -212,16 +225,57 @@ export function useCalendar() {
 }
 
 // /fred/series — FRED-driven market rates with spreads.
-// Mirrors qcdesktop's useFredSeries — quietly handles the case where the
-// FRED router isn't deployed yet (404).
-export function useFredSeries() {
+// Mirrors qcdesktop's useFredSeries. The optional `days` argument (1..90)
+// requests a wider history window for the rate-explorer chart; default
+// (omit) returns the standard 30-day bundle. Days is part of the queryKey
+// so different ranges cache independently.
+export function useFredSeries(days?: number) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  const requested = days != null ? Math.max(1, Math.min(days, 90)) : undefined;
+  const path = requested ? `/fred/series?days=${requested}` : "/fred/series";
+  return useQuery({
+    queryKey: ["fredSeries", key, requested ?? "default"],
+    queryFn: () => fetcher<FredSeriesSummary[]>(path),
+    staleTime: 5 * 60 * 1000,
+    retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
+  });
+}
+
+// Single-series with full history — used by detail screens that want to
+// drill into one rate. Mirrors qcdesktop's useFredSeriesDetail.
+export function useFredSeriesDetail(seriesId: string | null, days = 30) {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
   return useQuery({
-    queryKey: ["fredSeries", key],
-    queryFn: () => fetcher<FredSeriesSummary[]>("/fred/series"),
-    staleTime: 5 * 60 * 1000,
-    retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
+    queryKey: ["fredSeries", seriesId, days, key],
+    queryFn: () => fetcher<FredSeriesSummary>(`/fred/series/${seriesId}?days=${days}`),
+    enabled: !!seriesId,
+  });
+}
+
+// POST /loans/calc — loan-less what-if pricing. Mirrors qcdesktop's
+// useFreeCalc so the mobile simulator can stop doing client-side math
+// and use the same backend pricing engine the operator surface uses.
+export function useFreeCalc() {
+  const fetcher = useAuthedFetch();
+  return useMutation({
+    mutationFn: (body: {
+      type: string;
+      property_type?: string;
+      loan_amount: number;
+      base_rate: number;
+      discount_points: number;
+      term_months?: number | null;
+      monthly_rent?: number | null;
+      annual_taxes?: number;
+      annual_insurance?: number;
+      monthly_hoa?: number;
+    }) =>
+      fetcher<RecalcResponse>("/loans/calc", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   });
 }
 

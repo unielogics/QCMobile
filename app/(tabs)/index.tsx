@@ -17,17 +17,17 @@ import {
   Avatar,
   Card,
   SectionLabel,
-  Sparkline,
   StageBadge,
 } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
 import { QC_FMT } from "@/design-system/tokens";
+import { FredChart } from "@/components/FredChart";
 import {
   useCalendar,
+  useCurrentUser,
   useDashboardReport,
   useFredSeries,
   useLoans,
-  useMe,
   useMyCredit,
 } from "@/hooks/useApi";
 import { Role } from "@/lib/enums.generated";
@@ -84,7 +84,7 @@ function firstNameOf(user: { name?: string; email?: string } | null | undefined)
 export default function Home() {
   const { t, isDark } = useTheme();
   const router = useRouter();
-  const { data: user } = useMe();
+  const { data: user } = useCurrentUser();
   const { data: loans = [] } = useLoans();
   const { data: report } = useDashboardReport();
   const { data: events = [] } = useCalendar();
@@ -387,7 +387,15 @@ function RateCard({
   series,
 }: {
   card: { id: string; label: string; term: string; sub: string; series_id: string };
-  series: { current_value: number | null; estimated_rate: number | null; spread_bps: number; delta_bps: number | null; history_7d: { value: number | null }[] } | undefined;
+  series:
+    | {
+        current_value: number | null;
+        estimated_rate: number | null;
+        spread_bps: number;
+        delta_bps: number | null;
+        history_7d: { date: string; value: number | null }[];
+      }
+    | undefined;
 }) {
   const { t } = useTheme();
   const hasData = !!series && series.current_value != null;
@@ -396,7 +404,9 @@ function RateCard({
   const spreadBps = series?.spread_bps ?? 0;
   const delta = series?.delta_bps ?? null;
   const deltaColor = delta == null ? t.ink3 : delta < 0 ? t.profit : delta > 0 ? t.danger : t.ink3;
-  const sparkValues = (series?.history_7d ?? []).map((h) => h.value).filter((v): v is number => v != null);
+  // Pass the full history (date + value) into FredChart so the touch
+  // tooltip can show date + Δbps. Filter out null values up front.
+  const chartPoints = (series?.history_7d ?? []).filter((p) => p.value != null);
 
   return (
     <Card pad={12}>
@@ -406,12 +416,12 @@ function RateCard({
         </Text>
         <Text style={{ fontSize: 10, color: t.ink3, marginTop: 2 }}>{card.sub}</Text>
       </View>
-      {sparkValues.length >= 2 ? (
-        <View style={{ height: 32, marginTop: 4 }}>
-          <Sparkline data={sparkValues} color={t.spark} width={140} height={32} fill />
+      {chartPoints.length >= 2 ? (
+        <View style={{ height: 36, marginTop: 4 }}>
+          <FredChart data={chartPoints} color={t.spark} width={140} height={36} fill />
         </View>
       ) : (
-        <View style={{ height: 32, marginTop: 4, justifyContent: "center" }}>
+        <View style={{ height: 36, marginTop: 4, justifyContent: "center" }}>
           <Text style={{ fontSize: 10, color: t.ink4, fontStyle: "italic" }}>
             {hasData ? "Building history…" : "Awaiting first FRED pull"}
           </Text>
