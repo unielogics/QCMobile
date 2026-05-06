@@ -28,6 +28,7 @@ import { useTheme } from "@/design-system/ThemeProvider";
 import { Card, Pill, QButton, SectionLabel } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
 import { useCurrentUser, useMyClient, useMyCredit, useStartCreditPull } from "@/hooks/useApi";
+import { ApiError } from "@/lib/api";
 
 type Stage = "form" | "review" | "consent" | "pulling" | "done";
 
@@ -132,6 +133,10 @@ export default function CreditPull() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(EMPTY_FORM);
   const [statePickerOpen, setStatePickerOpen] = useState(false);
+  // SSN starts hidden; it's only required if the bureau can't match
+  // on name+address+DOB alone. Backend signals that with a structured
+  // 422 carrying `code: "no_hit_provide_ssn"`.
+  const [ssnRequired, setSsnRequired] = useState(false);
 
   // Pre-fill from account + client record once both are loaded. We only
   // overwrite fields the borrower hasn't already typed, so reopening the
@@ -150,7 +155,8 @@ export default function CreditPull() {
     });
   }, [accountFingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Required-field validity for the Continue button on the form step.
+  // Required-field validity for the Continue button. SSN is only
+  // required after the bureau told us it couldn't match without it.
   const formValid = useMemo(() => {
     return (
       form.legal_first_name.trim().length > 0 &&
@@ -160,22 +166,48 @@ export default function CreditPull() {
       form.city.trim().length > 0 &&
       form.state.length === 2 &&
       /^\d{5}(-\d{4})?$/.test(form.zip) &&
-      form.ssn.length === 9
+      (!ssnRequired || form.ssn.length === 9)
     );
-  }, [form]);
+  }, [form, ssnRequired]);
 
   const submit = async () => {
     setStage("pulling");
     setErrorMsg(null);
     try {
-      await start.mutateAsync({ ...form, fcra_consent: true });
+      // Only forward SSN when the borrower actually entered one.
+      // Pydantic rejects empty-string SSN, so coerce to undefined.
+      const payload: Record<string, unknown> = {
+        legal_first_name: form.legal_first_name,
+        legal_last_name: form.legal_last_name,
+        dob: form.dob,
+        street: form.street,
+        city: form.city,
+        state: form.state,
+        zip: form.zip,
+        fcra_consent: true,
+      };
+      if (form.ssn.length === 9) payload.ssn = form.ssn;
+
+      await start.mutateAsync(payload);
       setStage("done");
     } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Pull failed — please retry.";
-      setErrorMsg(message);
+      // Backend signals "we couldn't match without SSN" with a 422
+      // carrying body.detail.code === "no_hit_provide_ssn". The api
+      // wrapper attaches the parsed body to ApiError; pluck the code.
+      const code = readErrorCode(err);
+      const detailMsg = readErrorMessage(err);
+      if (code === "no_hit_provide_ssn") {
+        setSsnRequired(true);
+        setErrorMsg(
+          detailMsg ||
+            "We couldn't find your file with name + address + DOB alone. Add your SSN below and try again.",
+        );
+        setStage("form");
+        return;
+      }
+      setErrorMsg(
+        detailMsg || (err instanceof Error ? err.message : "Pull failed — please retry."),
+      );
       setStage("consent");
     }
   };
@@ -265,6 +297,8 @@ export default function CreditPull() {
               onContinue={() => setStage("review")}
               onPickState={() => setStatePickerOpen(true)}
               valid={formValid}
+              ssnRequired={ssnRequired}
+              ssnPrompt={ssnRequired ? errorMsg : null}
             />
           )}
 
@@ -369,12 +403,16 @@ function FormStage({
   onContinue,
   onPickState,
   valid,
+  ssnRequired,
+  ssnPrompt,
 }: {
   form: Form;
   onChange: (f: Form) => void;
   onContinue: () => void;
   onPickState: () => void;
   valid: boolean;
+  ssnRequired: boolean;
+  ssnPrompt: string | null;
 }) {
   const { t } = useTheme();
   const stateName = US_STATES.find((s) => s.code === form.state)?.name;
@@ -458,20 +496,37 @@ function FormStage({
         placeholder="12345"
       />
 
-      <SectionLabel>Identity</SectionLabel>
-      <Field
-        label="Social Security Number"
-        placeholder="9 digits, no dashes"
-        value={form.ssn}
-        onChangeText={(v) =>
-          onChange({ ...form, ssn: v.replace(/\D/g, "").slice(0, 9) })
-        }
-        keyboardType="number-pad"
-        secureTextEntry
-      />
-      <Text style={{ fontSize: 11, color: t.ink3, marginTop: -6, marginBottom: 4, lineHeight: 15 }}>
-        Sent to the bureau over TLS. Only the last 4 digits are saved on file.
-      </Text>
+      {ssnRequired ? (
+        <>
+          <SectionLabel>Identity verification</SectionLabel>
+          {ssnPrompt ? (
+            <View style={{ marginBottom: 10, padding: 10, borderRadius: 9, backgroundColor: t.warnBg }}>
+              <Text style={{ fontSize: 12, color: t.warn, fontWeight: "600", lineHeight: 17 }}>
+                {ssnPrompt}
+              </Text>
+            </View>
+          ) : null}
+          <Field
+            label="Social Security Number"
+            placeholder="9 digits, no dashes"
+            value={form.ssn}
+            onChangeText={(v) =>
+              onChange({ ...form, ssn: v.replace(/\D/g, "").slice(0, 9) })
+            }
+            keyboardType="number-pad"
+            secureTextEntry
+          />
+          <Text style={{ fontSize: 11, color: t.ink3, marginTop: -6, marginBottom: 4, lineHeight: 15 }}>
+            Sent to the bureau over TLS. Only the last 4 digits are saved on file.
+          </Text>
+        </>
+      ) : (
+        <View style={{ marginTop: 4, marginBottom: 8, padding: 10, borderRadius: 9, backgroundColor: t.surface2, borderWidth: 1, borderColor: t.line }}>
+          <Text style={{ fontSize: 11.5, color: t.ink2, lineHeight: 17 }}>
+            We try to match your credit file using name, address, and date of birth. We only ask for your SSN if the bureau can't find your file without it.
+          </Text>
+        </View>
+      )}
 
       <View style={{ marginTop: 12 }}>
         <QButton
@@ -523,8 +578,14 @@ function ReviewStage({
         label="State"
         value={stateName ? `${form.state} — ${stateName}` : form.state}
       />
-      <ReviewRow label="ZIP" value={form.zip} />
-      <ReviewRow label="SSN" value={form.ssn ? `•••-••-${form.ssn.slice(-4)}` : "—"} last />
+      <ReviewRow
+        label="ZIP"
+        value={form.zip}
+        last={form.ssn.length !== 9}
+      />
+      {form.ssn.length === 9 ? (
+        <ReviewRow label="SSN" value={`•••-••-${form.ssn.slice(-4)}`} last />
+      ) : null}
 
       <View style={{ marginTop: 14, gap: 8 }}>
         <QButton label="Continue to Consent" onPress={onContinue} />
@@ -828,6 +889,33 @@ function isValidDob(iso: string): boolean {
   if (d.getTime() > now.getTime()) return false;
   if (year < 1900) return false;
   return true;
+}
+
+// FastAPI returns 422s as either:
+//   { detail: "string-message" }                                — plain
+//   { detail: { code, message } }                               — structured
+// Pluck out the code / message from either shape.
+function readErrorCode(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  const body = err.body as { detail?: unknown } | undefined;
+  const detail = body?.detail;
+  if (detail && typeof detail === "object" && "code" in detail) {
+    const code = (detail as { code?: unknown }).code;
+    return typeof code === "string" ? code : null;
+  }
+  return null;
+}
+
+function readErrorMessage(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  const body = err.body as { detail?: unknown } | undefined;
+  const detail = body?.detail;
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && "message" in detail) {
+    const msg = (detail as { message?: unknown }).message;
+    return typeof msg === "string" ? msg : null;
+  }
+  return null;
 }
 
 function Field({ label, ...rest }: { label: string } & React.ComponentProps<typeof TextInput>) {
