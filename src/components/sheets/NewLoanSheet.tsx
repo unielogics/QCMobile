@@ -2,6 +2,9 @@ import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 import { LOAN_TYPES } from "@/lib/sample-data";
+import { isProductKeyEnabled } from "@/lib/products";
+
+const ENABLED_LOAN_TYPES = LOAN_TYPES.filter((lt) => isProductKeyEnabled(lt.id));
 
 export function NewLoanSheet({ visible, onClose, onPick }: {
   visible: boolean;
@@ -42,7 +45,7 @@ export function NewLoanSheet({ visible, onClose, onPick }: {
 
           <ScrollView contentContainerStyle={{ paddingTop: 16 }} showsVerticalScrollIndicator={false}>
             <View style={{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -4 }}>
-              {LOAN_TYPES.map((lt) => (
+              {ENABLED_LOAN_TYPES.map((lt) => (
                 <View key={lt.id} style={{ width: "50%", padding: 4 }}>
                   <Pressable
                     onPress={() => onPick(lt.id)}

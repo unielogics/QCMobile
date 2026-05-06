@@ -1,6 +1,7 @@
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { useAuth } from "@clerk/clerk-expo";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Avatar, Card, SectionLabel } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
@@ -31,10 +32,34 @@ const ACCOUNT_ROWS = [
 export default function Profile() {
   const { t, isDark, mode, setMode, toggle: _toggle } = useTheme();
   const router = useRouter();
+  const { signOut } = useAuth();
   const { data: user } = useMe();
   const { data: credit } = useCreditCurrent();
   const isClient = user?.role === Role.CLIENT;
   void _toggle;
+
+  const handleSignOut = () => {
+    Alert.alert(
+      "Sign out?",
+      "You'll need to sign in again to access your account.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sign out",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await signOut();
+              router.replace("/(auth)/sign-in");
+            } catch (e) {
+              Alert.alert("Sign out failed", e instanceof Error ? e.message : "Try again.");
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
 
   const themeOptions: { id: "light" | "system" | "dark"; label: string; icon: string }[] = [
     { id: "light",  label: "Light", icon: "sun" },
@@ -95,7 +120,12 @@ export default function Profile() {
                 </View>
                 <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
                   <Pressable
-                    onPress={() => router.push("/credit-pull")}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/credit-pull",
+                        params: { mode: credit?.is_expired ? "expired" : "refresh" },
+                      })
+                    }
                     style={{ flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: t.surface, borderWidth: 1, borderColor: t.lineStrong, alignItems: "center" }}
                   >
                     <Text style={{ fontSize: 12.5, fontWeight: "600", color: t.ink }}>Re-Run Soft Pull</Text>
@@ -171,7 +201,7 @@ export default function Profile() {
 
         {/* Account list */}
         <SectionLabel>Account</SectionLabel>
-        <Card pad={0}>
+        <Card pad={0} style={{ marginBottom: 18 }}>
           {ACCOUNT_ROWS.map((row, i) => (
             <Pressable
               key={row.label}
@@ -194,6 +224,29 @@ export default function Profile() {
             </Pressable>
           ))}
         </Card>
+
+        {/* Sign out — destructive, full-width */}
+        <Pressable
+          onPress={handleSignOut}
+          accessibilityLabel="Sign out"
+          style={({ pressed }) => ({
+            paddingVertical: 14, paddingHorizontal: 16,
+            borderRadius: 12,
+            backgroundColor: t.danger,
+            flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <Icon name="lock" size={16} color={isDark ? "#06070B" : "#fff"} />
+          <Text style={{ fontSize: 15, fontWeight: "800", color: isDark ? "#06070B" : "#fff", letterSpacing: 0.3 }}>
+            Sign out
+          </Text>
+        </Pressable>
+        {user?.email ? (
+          <Text style={{ fontSize: 11, color: t.ink3, textAlign: "center", marginTop: 8 }}>
+            Signed in as {user.email}
+          </Text>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

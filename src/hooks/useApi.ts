@@ -6,7 +6,9 @@ import type {
   Loan,
   RecalcResponse,
   CreditPullStatus,
+  CreditSummary,
   User,
+  Client,
   RateSKU,
   Activity,
   Document,
@@ -87,6 +89,10 @@ export function useLoan(loanId: string | null | undefined) {
     queryKey: ["loan", loanId, key],
     queryFn: () => fetcher<Loan>(`/loans/${loanId}`),
     enabled: !!loanId,
+    // Poll every 15s so CLIENTs see operator/AI edits propagate without
+    // a page refresh. Slice 3 will replace this with WebSocket push.
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -99,6 +105,32 @@ export function useCreditCurrent() {
   });
 }
 
+// Backed by /clients/me. Returns the calling user's linked Client record
+// (phone, address, city, tier, etc.). Used to pre-fill borrower-facing
+// flows like the soft credit pull. 404 is expected for operator users
+// with no client linkage — don't retry.
+export function useMyClient() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["my-client", key],
+    queryFn: () => fetcher<Client>("/clients/me"),
+    retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
+  });
+}
+
+// Borrower-safe summary derived from the parsed credit report.
+// Backend: GET /credit/pulls/{id}/summary.
+export function useCreditSummary(pullId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["credit-summary", pullId, key],
+    queryFn: () => fetcher<CreditSummary>(`/credit/pulls/${pullId}/summary`),
+    enabled: !!pullId,
+  });
+}
+
 export function useStartCreditPull() {
   const fetcher = useAuthedFetch();
   const qc = useQueryClient();
@@ -106,7 +138,17 @@ export function useStartCreditPull() {
   return useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
       fetcher<CreditPullStatus>("/credit/pull", { method: "POST", body: JSON.stringify(payload) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["credit", key] }),
+    onSuccess: (data) => {
+      // The simulator reads from useMyCredit (queryKey ["my-credit", key])
+      // while useCreditCurrent uses ["credit", key]. Populate BOTH caches
+      // synchronously so the simulator unlocks immediately when the user
+      // navigates back from the credit-pull screen, without waiting for a
+      // background refetch. Then invalidate the prefixes to be safe.
+      qc.setQueryData(["credit", key], data);
+      qc.setQueryData(["my-credit", key], data);
+      qc.invalidateQueries({ queryKey: ["credit"] });
+      qc.invalidateQueries({ queryKey: ["my-credit"] });
+    },
   });
 }
 

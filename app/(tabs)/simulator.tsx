@@ -12,21 +12,30 @@ import { Icon } from "@/design-system/Icon";
 import { Slider } from "@/design-system/Slider";
 import { QC_FMT } from "@/design-system/tokens";
 import { TopBar } from "@/components/TopBar";
-import { useFredSeries, useLoans, useMyCredit } from "@/hooks/useApi";
+import { useCreditSummary, useFredSeries, useLoans, useMyCredit } from "@/hooks/useApi";
+import { CreditSummaryCard } from "@/components/CreditSummaryCard";
 import {
+  bindingConstraintLabel,
+  cappedReasonLabel,
   computeEligibility,
   computeSimulator,
   ltvLabel,
   type EligibilityBanner,
   type SimulatorInputs,
+  type TransactionType,
 } from "@/lib/eligibility";
+import { isProductKeyEnabled } from "@/lib/products";
+import { RangeGauge } from "@/components/RangeGauge";
+import { LoanSimulator } from "@/components/LoanSimulator";
+import type { Loan } from "@/lib/types";
 
-const PRODUCTS: { id: SimulatorInputs["productKey"]; label: string; sub: string }[] = [
+const ALL_PRODUCTS: { id: SimulatorInputs["productKey"]; label: string; sub: string }[] = [
   { id: "dscr", label: "DSCR Rental",   sub: "30 yr" },
   { id: "ff",   label: "Fix & Flip",    sub: "12 mo" },
   { id: "gu",   label: "Ground Up",     sub: "18 mo" },
   { id: "br",   label: "Bridge",        sub: "24 mo" },
 ];
+const PRODUCTS = ALL_PRODUCTS.filter((p) => isProductKeyEnabled(p.id));
 
 // Mirrors qcdesktop's LOAN_TYPE_TO_SERIES — keep in sync. Maps the
 // client-facing product key to the FRED benchmark used to price it.
@@ -37,12 +46,20 @@ const PRODUCT_TO_SERIES: Record<SimulatorInputs["productKey"], string> = {
   br:   "SOFR",
 };
 
+type SimTab = "free" | "started";
+
 export default function Simulator() {
   const { t, isDark } = useTheme();
   const router = useRouter();
   const { data: credit } = useMyCredit();
+  const { data: creditSummary } = useCreditSummary(credit?.id);
   const { data: loans = [] } = useLoans();
   const { data: fred } = useFredSeries();
+
+  // Segmented-control state — Free Simulate | My Loans.
+  const [simTab, setSimTab] = useState<SimTab>("free");
+  const [pickedLoanId, setPickedLoanId] = useState<string | null>(null);
+  const pickedLoan = pickedLoanId ? loans.find((l) => l.id === pickedLoanId) ?? null : null;
 
   const propertyCount = loans.length;
   const hasYearOfOwnership = useMemo(() => {
@@ -55,20 +72,36 @@ export default function Simulator() {
     fico: credit?.fico ?? null,
     propertyCount,
     hasYearOfOwnership,
+    creditExpired: credit?.is_expired ?? false,
+    creditExpiringSoon: credit?.expiring_soon ?? false,
+    daysUntilExpiry: credit?.days_until_expiry ?? null,
   });
 
   const [productKey, setProductKey] = useState<SimulatorInputs["productKey"]>("dscr");
+  const [transactionType, setTransactionType] = useState<TransactionType>("purchase");
   const [arvText, setArvText] = useState("500000");
   const [brvText, setBrvText] = useState("400000");
+  const [rehabText, setRehabText] = useState("80000");
+  const [payoffText, setPayoffText] = useState("0");
   const [points, setPoints] = useState(1);
   const initialLtv = Math.min(eligibility.maxLTV * 100 || 65, 65);
   const [ltvPct, setLtvPct] = useState(initialLtv);
+  const [requestedLoanText, setRequestedLoanText] = useState<string | null>(null);
 
   const arvNum = Number(arvText.replace(/[^0-9.]/g, "")) || 0;
   const brvNum = Number(brvText.replace(/[^0-9.]/g, "")) || 0;
+  const rehabNum = Number(rehabText.replace(/[^0-9.]/g, "")) || 0;
+  const payoffNum = Number(payoffText.replace(/[^0-9.]/g, "")) || 0;
+  const requestedLoanNum =
+    requestedLoanText != null ? Number(requestedLoanText.replace(/[^0-9.]/g, "")) || 0 : null;
   const isBlocked = eligibility.tier === "blocked";
   const reno = productKey === "ff" || productKey === "gu";
-  const propertyLabel = reno ? "ARV (After Repair Value)" : "Market Value";
+  const isRefi = productKey === "dscr" && transactionType === "refi";
+  const propertyLabel = reno
+    ? "ARV (After Repair Value)"
+    : isRefi
+      ? "Property Value"
+      : "Market Value";
 
   // Pull today's rate from FRED for the selected product. Falls through to
   // the hardcoded table inside computeSimulator when FRED isn't available.
@@ -83,12 +116,84 @@ export default function Simulator() {
       discountPoints: points,
       productKey,
       baseRatePct,
+      transactionType: productKey === "dscr" ? transactionType : undefined,
+      payoff: isRefi ? payoffNum : undefined,
+      brv: reno ? brvNum : undefined,
+      rehabBudget: reno ? rehabNum : undefined,
+      requestedLoanAmount: requestedLoanNum ?? undefined,
+      ltvTierCap: eligibility.maxLTV > 0 ? eligibility.maxLTV : undefined,
     });
-  }, [isBlocked, arvNum, ltvPct, points, productKey, baseRatePct]);
+  }, [
+    isBlocked,
+    arvNum,
+    ltvPct,
+    points,
+    productKey,
+    baseRatePct,
+    transactionType,
+    isRefi,
+    payoffNum,
+    reno,
+    brvNum,
+    rehabNum,
+    requestedLoanNum,
+    eligibility.maxLTV,
+  ]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
       <TopBar title="Simulator" />
+
+      {/* Segmented control — Free Simulate | My Loans */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}>
+        <View style={{ flexDirection: "row", backgroundColor: t.chip, borderRadius: 12, padding: 3 }}>
+          {(
+            [
+              { id: "free" as const, label: "Free Simulate" },
+              { id: "started" as const, label: `My Loans${loans.length ? ` (${loans.length})` : ""}` },
+            ]
+          ).map((opt) => {
+            const active = simTab === opt.id;
+            return (
+              <Pressable
+                key={opt.id}
+                onPress={() => {
+                  setSimTab(opt.id);
+                  setPickedLoanId(null);
+                }}
+                style={{
+                  flex: 1,
+                  paddingVertical: 9,
+                  borderRadius: 9,
+                  backgroundColor: active ? t.surface : "transparent",
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: "700", color: active ? t.ink : t.ink3 }}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {simTab === "started" ? (
+        pickedLoan ? (
+          <View style={{ flex: 1 }}>
+            <Pressable
+              onPress={() => setPickedLoanId(null)}
+              hitSlop={12}
+              style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8, flexDirection: "row", alignItems: "center", gap: 4 }}
+            >
+              <Text style={{ color: t.brand, fontWeight: "700", fontSize: 14 }}>‹ My Loans</Text>
+            </Pressable>
+            <LoanSimulator loan={pickedLoan} />
+          </View>
+        ) : (
+          <MyLoansList loans={loans} onPick={setPickedLoanId} onSwitchToFree={() => setSimTab("free")} />
+        )
+      ) : (
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
         {/* Eligibility banner */}
         {eligibility.banner ? (
@@ -96,12 +201,28 @@ export default function Simulator() {
             <EligibilityBannerCard
               banner={eligibility.banner}
               onCta={(target) => {
-                if (target === "credit-pull") router.push("/credit-pull");
+                if (target === "credit-pull") {
+                  // Carry the banner kind through as a mode hint so
+                  // /credit-pull renders the right copy and skips the
+                  // "you already have a valid pull" gate.
+                  const mode =
+                    eligibility.banner?.kind === "credit-expired"
+                      ? "expired"
+                      : eligibility.banner?.kind === "credit-expiring"
+                        ? "refresh"
+                        : undefined;
+                  router.push({ pathname: "/credit-pull", params: mode ? { mode } : undefined });
+                }
                 if (target === "vault") router.push("/(tabs)/vault");
                 if (target === "new-loan") router.push("/(tabs)");
               }}
             />
           </View>
+        ) : null}
+
+        {/* Credit summary — headline FICO + tier + bullets + qualifying products */}
+        {credit && creditSummary ? (
+          <CreditSummaryCard summary={creditSummary} />
         ) : null}
 
         {/* Product selector */}
@@ -149,12 +270,32 @@ export default function Simulator() {
           </View>
         </View>
 
-        {/* Property value(s) — reno shows BRV + ARV, stabilized shows Market Value. */}
+        {/* Property value(s) — reno shows BRV + Rehab + ARV;
+            DSCR refi shows Property Value + Payoff;
+            DSCR purchase shows Market Value only. */}
         <Card pad={14} style={{ marginBottom: 12 }}>
+          {productKey === "dscr" ? (
+            <View style={{ flexDirection: "row", gap: 4, backgroundColor: t.chip, borderRadius: 11, padding: 3, marginBottom: 12 }}>
+              {(["purchase", "refi"] as const).map((tx) => {
+                const active = transactionType === tx;
+                return (
+                  <Pressable
+                    key={tx}
+                    onPress={() => setTransactionType(tx)}
+                    style={{ flex: 1, paddingVertical: 7, borderRadius: 9, backgroundColor: active ? t.surface : "transparent", alignItems: "center" }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: active ? t.ink : t.ink3 }}>
+                      {tx === "purchase" ? "Purchase" : "Refinance"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
           {reno ? (
             <>
               <ValueInput
-                label="BRV (Before Repair Value)"
+                label="Purchase price (BRV)"
                 hint="As-is purchase value"
                 value={brvText}
                 onChange={setBrvText}
@@ -163,23 +304,47 @@ export default function Simulator() {
               />
               <View style={{ height: 12 }} />
               <ValueInput
+                label="Rehab budget"
+                hint="Construction / repair cost"
+                value={rehabText}
+                onChange={setRehabText}
+                num={rehabNum}
+                placeholder="80000"
+              />
+              <View style={{ height: 12 }} />
+              <ValueInput
                 label={propertyLabel}
-                hint="Loan sized off ARV × LTV"
+                hint="After repair value (cap basis)"
+                value={arvText}
+                onChange={setArvText}
+                num={arvNum}
+                placeholder="600000"
+              />
+            </>
+          ) : (
+            <>
+              <ValueInput
+                label={propertyLabel}
+                hint={isRefi ? "Today's appraised value" : "Loan = Market Value × LTV"}
                 value={arvText}
                 onChange={setArvText}
                 num={arvNum}
                 placeholder="500000"
               />
+              {isRefi ? (
+                <>
+                  <View style={{ height: 12 }} />
+                  <ValueInput
+                    label="Existing payoff"
+                    hint="Mortgage balance to pay off"
+                    value={payoffText}
+                    onChange={setPayoffText}
+                    num={payoffNum}
+                    placeholder="0"
+                  />
+                </>
+              ) : null}
             </>
-          ) : (
-            <ValueInput
-              label={propertyLabel}
-              hint="Loan amount = Market Value × LTV"
-              value={arvText}
-              onChange={setArvText}
-              num={arvNum}
-              placeholder="500000"
-            />
           )}
           {liveRate?.estimated_rate != null ? (
             <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: t.line }}>
@@ -217,32 +382,84 @@ export default function Simulator() {
           />
         </Card>
 
-        {/* LTV slider */}
-        <Card pad={14} style={{ marginBottom: 12 }}>
-          <SliderHeader
-            label={reno ? "Loan-to-ARV" : "Loan-to-value (LTV)"}
-            value={`${ltvPct}%`}
-            hint={ltvLabel(ltvPct / 100)}
-            disabled={isBlocked}
-          />
-          <Slider
-            value={ltvPct}
-            min={60}
-            max={75}
-            step={1}
-            onChange={isBlocked ? () => {} : setLtvPct}
-            gatedMax={isBlocked ? 60 : eligibility.maxLTV * 100}
-            markers={eligibility.allLTVs.map((v) => ({
-              value: Math.round(v * 100),
-              label: `${Math.round(v * 100)}%`,
-            }))}
-          />
-          {!isBlocked && eligibility.maxLTV < 0.75 ? (
-            <Text style={{ fontSize: 11, color: t.ink3, marginTop: 6 }}>
-              70% and 75% locked at this tier.
+        {/* RangeGauge — visual cap-vs-current */}
+        {sim && arvNum > 0 ? (
+          <Card pad={14} style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 11, fontWeight: "700", color: t.ink3, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>
+              Purchase power
             </Text>
-          ) : null}
-        </Card>
+            <RangeGauge
+              current={sim.effectiveLtv}
+              max={reno ? Math.max(0.001, sim.maxLoan / Math.max(arvNum, 1)) : sim.effectiveLtvCap ?? eligibility.maxLTV}
+              tiers={[0.6, 0.65, 0.7, 0.75]}
+              lockedAbove={eligibility.maxLTV}
+              binding={sim.clamped ? (sim.bindingConstraint as "ltv" | "ltc" | "arv" | "refi-cap") : undefined}
+              markers={
+                isRefi && payoffNum > 0 && arvNum > 0
+                  ? [{ at: payoffNum / arvNum, label: "payoff", tone: "muted" }]
+                  : undefined
+              }
+              secondaryCap={reno ? { at: 0.7, label: "ARV cap" } : undefined}
+            />
+            <Text style={{ fontSize: 11, color: t.ink3, marginTop: 4 }}>
+              Loan {QC_FMT.usd(sim.loanAmount, 0)} · max {QC_FMT.usd(sim.maxLoan, 0)} · {bindingConstraintLabel(sim.bindingConstraint)}
+            </Text>
+          </Card>
+        ) : null}
+
+        {/* LTV slider — hidden for reno products (sized off LTC, not LTV) */}
+        {!reno ? (
+          <Card pad={14} style={{ marginBottom: 12 }}>
+            <SliderHeader
+              label="Loan-to-value (LTV)"
+              value={`${ltvPct}%`}
+              hint={ltvLabel(ltvPct / 100)}
+              disabled={isBlocked}
+            />
+            <Slider
+              value={ltvPct}
+              min={60}
+              max={isRefi ? 75 : 80}
+              step={1}
+              onChange={
+                isBlocked
+                  ? () => {}
+                  : (v) => {
+                      setLtvPct(v);
+                      setRequestedLoanText(null);
+                    }
+              }
+              gatedMax={isBlocked ? 60 : Math.min(eligibility.maxLTV * 100, isRefi ? 75 : 80)}
+              markers={eligibility.allLTVs.map((v) => ({
+                value: Math.round(v * 100),
+                label: `${Math.round(v * 100)}%`,
+              }))}
+            />
+            {!isBlocked && eligibility.maxLTV < 0.75 ? (
+              <Text style={{ fontSize: 11, color: t.ink3, marginTop: 6 }}>
+                70% and 75% locked at this tier.
+              </Text>
+            ) : null}
+          </Card>
+        ) : null}
+
+        {/* Manual loan amount — clamped to the cap */}
+        {sim ? (
+          <Card pad={14} style={{ marginBottom: 12 }}>
+            <ValueInput
+              label={`Loan amount · max ${QC_FMT.usd(sim.maxLoan, 0)}`}
+              hint={
+                sim.clamped
+                  ? cappedReasonLabel(sim.bindingConstraint, sim.maxLoan)
+                  : "Type to override; clamps to cap on blur"
+              }
+              value={requestedLoanText ?? Math.round(sim.loanAmount).toString()}
+              onChange={(v) => setRequestedLoanText(v)}
+              num={requestedLoanNum ?? sim.loanAmount}
+              placeholder={Math.round(sim.maxLoan).toString()}
+            />
+          </Card>
+        ) : null}
 
         {/* HUD-1 breakdown */}
         {sim ? (
@@ -279,10 +496,113 @@ export default function Simulator() {
               <Text style={{ fontSize: 12, fontWeight: "700", letterSpacing: 0.4, color: t.ink, textTransform: "uppercase" }}>Total to close</Text>
               <Text style={{ fontSize: 18, fontWeight: "700", letterSpacing: -0.3, color: t.ink }}>{QC_FMT.usd(sim.totalToClose, 0)}</Text>
             </View>
+            {sim.cashToBorrower != null ? (
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: t.line }}>
+                <Text style={{ fontSize: 12, fontWeight: "600", color: t.ink2 }}>
+                  {sim.cashToBorrower >= 0 ? "Cash to borrower" : "Cash to close (refi gap)"}
+                </Text>
+                <Text style={{ fontSize: 16, fontWeight: "700", color: sim.cashToBorrower >= 0 ? t.profit : t.danger }}>
+                  {sim.cashToBorrower >= 0 ? "+" : ""}{QC_FMT.usd(sim.cashToBorrower, 0)}
+                </Text>
+              </View>
+            ) : null}
+            {sim.cashToClose != null ? (
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: t.line }}>
+                <Text style={{ fontSize: 12, fontWeight: "600", color: t.ink2 }}>Borrower equity (cash to close)</Text>
+                <Text style={{ fontSize: 16, fontWeight: "700", color: t.ink }}>{QC_FMT.usd(sim.cashToClose, 0)}</Text>
+              </View>
+            ) : null}
           </Card>
         ) : null}
       </ScrollView>
+      )}
     </SafeAreaView>
+  );
+}
+
+function MyLoansList({
+  loans,
+  onPick,
+  onSwitchToFree,
+}: {
+  loans: Loan[];
+  onPick: (loanId: string) => void;
+  onSwitchToFree: () => void;
+}) {
+  const { t } = useTheme();
+  if (loans.length === 0) {
+    return (
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 80, gap: 14 }}>
+        <Card pad={20}>
+          <Text style={{ fontSize: 16, fontWeight: "800", color: t.ink, letterSpacing: -0.3 }}>
+            No started loans yet
+          </Text>
+          <Text style={{ fontSize: 13, color: t.ink3, marginTop: 6, lineHeight: 19 }}>
+            Once a loan is started, you'll see it here with a locked-terms view. Until then, use Free
+            Simulate to model what a deal could look like.
+          </Text>
+          <Pressable
+            onPress={onSwitchToFree}
+            style={({ pressed }) => ({
+              marginTop: 14,
+              paddingVertical: 11,
+              paddingHorizontal: 16,
+              borderRadius: 10,
+              backgroundColor: t.brand,
+              alignSelf: "flex-start",
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+              Open Free Simulate
+            </Text>
+          </Pressable>
+        </Card>
+      </ScrollView>
+    );
+  }
+  return (
+    <ScrollView
+      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 80, gap: 10 }}
+      showsVerticalScrollIndicator={false}
+    >
+      {loans.map((loan) => {
+        const arvNum = loan.arv != null ? Number(loan.arv) : 0;
+        const ltvPct = loan.ltv != null ? Math.round(Number(loan.ltv) * 100) : null;
+        return (
+          <Pressable
+            key={loan.id}
+            onPress={() => onPick(loan.id)}
+            style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+          >
+            <Card pad={14}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View
+                  style={{
+                    flex: 1,
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink, letterSpacing: -0.3 }}>
+                    {loan.address || "Unnamed loan"}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: t.ink3, marginTop: 2 }}>
+                    {loan.type.replace(/_/g, " ")} · {loan.stage.replace(/_/g, " ")}
+                  </Text>
+                </View>
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink, fontVariant: ["tabular-nums"] }}>
+                    {arvNum > 0 ? QC_FMT.short(arvNum) : "—"}
+                  </Text>
+                  <Text style={{ fontSize: 10.5, color: t.ink3, marginTop: 1 }}>
+                    {ltvPct != null ? `${ltvPct}% LTV` : "—"}
+                  </Text>
+                </View>
+              </View>
+            </Card>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 }
 
@@ -369,6 +689,10 @@ function EligibilityBannerCard({
         return { bg: t.petrolSoft, fg: t.petrol, icon: "trend" as const };
       case "no-credit":
         return { bg: t.brandSoft, fg: t.brand, icon: "shield" as const };
+      case "credit-expired":
+        return { bg: t.dangerBg, fg: t.danger, icon: "refresh" as const };
+      case "credit-expiring":
+        return { bg: t.warnBg, fg: t.warn, icon: "refresh" as const };
     }
   })();
 

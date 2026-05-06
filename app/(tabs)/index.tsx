@@ -159,7 +159,22 @@ export default function Home() {
         </View>
 
         {/* Pro Terms — CLIENT only, mirrors desktop ProTermsCard */}
-        {isClient ? <ProTermsCard credit={credit} onPress={() => router.push("/credit-pull")} /> : null}
+        {isClient ? (
+          <ProTermsCard
+            credit={credit}
+            onPress={() => {
+              const mode = credit?.is_expired
+                ? "expired"
+                : credit?.fico != null
+                  ? "refresh"
+                  : undefined;
+              router.push({
+                pathname: "/credit-pull",
+                params: mode ? { mode } : undefined,
+              });
+            }}
+          />
+        ) : null}
 
         {/* Market Rates — FRED */}
         <SectionLabel

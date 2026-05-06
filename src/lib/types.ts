@@ -13,6 +13,25 @@ export interface User {
   role: Role;
 }
 
+export interface Client {
+  id: string;
+  user_id: string | null;
+  broker_id: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  city: string | null;
+  since: string | null;
+  tier: string;
+  fico: number | null;
+  avatar_color: string | null;
+  funded_total: number;
+  funded_count: number;
+  properties: string | null;
+  experience: string | null;
+}
+
 export interface RateSKU {
   id: string;
   label: string;
@@ -68,6 +87,41 @@ export interface CreditPullStatus {
   fico: number | null;
   pulled_at: string | null;
   expires_at: string | null;
+  // Derived (computed in router) — UI uses these to render the
+  // "expires in 12 days" pill without doing date math.
+  is_expired?: boolean;
+  days_until_expiry?: number | null;
+  expiring_soon?: boolean;
+}
+
+// ── Credit summary (borrower-facing) ───────────────────────────────────────
+// Shape mirrors qcdesktop/src/lib/types.ts CreditSummary — keep in sync.
+export interface CreditSummaryBullet {
+  kind: "positive" | "neutral" | "warn";
+  label: string;
+  detail: string | null;
+}
+export interface CreditSummaryProduct {
+  id: string;
+  label: string;
+  loan_type: string;
+  rate?: number;
+  max_ltv?: number;
+  term?: string;
+  min_fico?: number;
+  reason?: string;
+}
+export interface CreditSummary {
+  fico: number | null;
+  fico_model: string | null;
+  tier: string | null;
+  tier_max_ltv: number | null;
+  bullets: CreditSummaryBullet[];
+  recent_inquiries_6mo?: number;
+  available_products: CreditSummaryProduct[];
+  blocked_products: CreditSummaryProduct[];
+  fraud_flag: string | null;
+  note?: string;
 }
 
 export interface Activity {
