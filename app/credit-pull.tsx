@@ -129,6 +129,13 @@ export default function CreditPull() {
   const hasValidPull = !!existingCredit && existingCredit.fico != null && !existingCredit.is_expired;
   const showsValidPullGate = hasValidPull && params.mode !== "refresh" && params.mode !== "expired";
 
+  // Separate gate for the "we pulled but the bureau returned no usable
+  // score" case (thin file, no recent activity). Without this the form
+  // would render as if the user had never pulled, prompting them to
+  // re-pull the same identity and burn another bureau request.
+  const hasNoScorePull = !!existingCredit && existingCredit.fico == null && !existingCredit.is_expired;
+  const showsNoScoreGate = hasNoScorePull && params.mode !== "refresh";
+
   const [stage, setStage] = useState<Stage>("form");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(EMPTY_FORM);
@@ -191,9 +198,10 @@ export default function CreditPull() {
       await start.mutateAsync(payload);
       setStage("done");
     } catch (err) {
-      // Backend signals "we couldn't match without SSN" with a 422
-      // carrying body.detail.code === "no_hit_provide_ssn". The api
-      // wrapper attaches the parsed body to ApiError; pluck the code.
+      // Backend signals structured deny outcomes via 422 + detail.code.
+      //   no_hit_provide_ssn  → reveal SSN field, retry
+      //   bureau_freeze       → user must lift their freeze with the bureau
+      // The api wrapper attaches the parsed body to ApiError; pluck the code.
       const code = readErrorCode(err);
       const detailMsg = readErrorMessage(err);
       if (code === "no_hit_provide_ssn") {
@@ -201,6 +209,14 @@ export default function CreditPull() {
         setErrorMsg(
           detailMsg ||
             "We couldn't find your file with name + address + DOB alone. Add your SSN below and try again.",
+        );
+        setStage("form");
+        return;
+      }
+      if (code === "bureau_freeze") {
+        setErrorMsg(
+          detailMsg ||
+            "Your credit file is frozen at the bureau. Please lift the freeze with Experian, Equifax, or TransUnion and try again.",
         );
         setStage("form");
         return;
@@ -286,11 +302,37 @@ export default function CreditPull() {
                 />
               </View>
             </Card>
+          ) : showsNoScoreGate ? (
+            <Card pad={16}>
+              <SectionLabel>We pulled your credit, but…</SectionLabel>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: t.ink, marginTop: 6 }}>
+                The bureau didn't return a usable score
+              </Text>
+              <Text style={{ fontSize: 12, color: t.ink2, marginTop: 8, lineHeight: 17 }}>
+                This usually means a thin or stale credit file. Re-running on the same
+                identity won't change the result — please contact support if you believe
+                this is an error.
+              </Text>
+              <Text style={{ fontSize: 11, color: t.ink3, marginTop: 8 }}>
+                Pulled{" "}
+                {existingCredit?.pulled_at
+                  ? new Date(existingCredit.pulled_at).toLocaleDateString()
+                  : "—"}
+              </Text>
+              <View style={{ marginTop: 14, gap: 8 }}>
+                <QButton label="Done" onPress={() => router.back()} />
+                <QButton
+                  label="Re-run anyway"
+                  variant="secondary"
+                  onPress={() => router.setParams({ mode: "refresh" })}
+                />
+              </View>
+            </Card>
           ) : (
             <ProgressBar stage={stage} />
           )}
 
-          {!showsValidPullGate && stage === "form" && (
+          {!showsValidPullGate && !showsNoScoreGate && stage === "form" && (
             <FormStage
               form={form}
               onChange={setForm}
@@ -302,7 +344,7 @@ export default function CreditPull() {
             />
           )}
 
-          {!showsValidPullGate && stage === "review" && (
+          {!showsValidPullGate && !showsNoScoreGate && stage === "review" && (
             <ReviewStage
               form={form}
               onEdit={() => setStage("form")}
@@ -310,7 +352,7 @@ export default function CreditPull() {
             />
           )}
 
-          {!showsValidPullGate && stage === "consent" && (
+          {!showsValidPullGate && !showsNoScoreGate && stage === "consent" && (
             <ConsentStage
               form={form}
               errorMsg={errorMsg}
@@ -319,7 +361,7 @@ export default function CreditPull() {
             />
           )}
 
-          {!showsValidPullGate && stage === "pulling" && (
+          {!showsValidPullGate && !showsNoScoreGate && stage === "pulling" && (
             <Card pad={24}>
               <Text style={{ color: t.ink, fontSize: 16, fontWeight: "700", textAlign: "center" }}>
                 Pulling… Experian → TransUnion → Equifax
@@ -327,7 +369,7 @@ export default function CreditPull() {
             </Card>
           )}
 
-          {!showsValidPullGate && stage === "done" && (
+          {!showsValidPullGate && !showsNoScoreGate && stage === "done" && (
             <DoneStage data={start.data ?? null} onClose={() => router.back()} />
           )}
         </ScrollView>
@@ -659,6 +701,37 @@ function DoneStage({
   onClose: () => void;
 }) {
   const { t } = useTheme();
+  // The bureau can return 200-OK with a null FICO when the file is too
+  // thin or stale to score. Surface that explicitly so the borrower
+  // doesn't think the pull is still loading or that it failed silently.
+  if (data && data.fico == null) {
+    return (
+      <Card pad={24}>
+        <Text style={{ color: t.warn, fontSize: 14, fontWeight: "700", textAlign: "center" }}>
+          No score available
+        </Text>
+        <Text
+          style={{
+            color: t.ink,
+            fontSize: 18,
+            fontWeight: "700",
+            textAlign: "center",
+            marginTop: 12,
+          }}
+        >
+          The bureau didn't return a usable score
+        </Text>
+        <Text style={{ color: t.ink2, fontSize: 13, textAlign: "center", marginTop: 10, lineHeight: 18 }}>
+          This usually means a thin or stale credit file. Re-running on the same
+          identity won't change the result — please contact support if you believe
+          this is an error.
+        </Text>
+        <View style={{ marginTop: 18 }}>
+          <QButton label="Done" onPress={onClose} />
+        </View>
+      </Card>
+    );
+  }
   return (
     <Card pad={24}>
       <Text style={{ color: t.profit, fontSize: 14, fontWeight: "700", textAlign: "center" }}>
