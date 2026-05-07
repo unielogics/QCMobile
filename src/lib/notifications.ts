@@ -1,0 +1,168 @@
+// Push notifications setup for Android (and iOS, when we ship it).
+//
+// On first launch we:
+//   1. Set up the Android `default` notification channel (required for
+//      Android 8+ — without it, system trays mute every push silently)
+//   2. Ask the user for POST_NOTIFICATIONS permission (Android 13+)
+//   3. Fetch the Expo push token (FCM under the hood) and surface it via
+//      the returned hook so the Profile screen can render diagnostics +
+//      a future POST /devices/push-tokens call can register it server-side
+//
+// We also configure a foreground handler so notifications received while
+// the app is open render as banners + play sound (default Expo behavior
+// hides them otherwise).
+//
+// This file is safe to import on iOS too — Device.isDevice / Platform
+// guards keep the Android-specific calls from firing.
+
+import { useEffect, useState } from "react";
+import { Linking, Platform } from "react-native";
+import * as Notifications from "expo-notifications";
+import * as Device from "expo-device";
+import Constants from "expo-constants";
+
+// Foreground notification behavior — show the banner + play the sound
+// even when the app is open. Without this, foreground pushes are
+// dropped silently on iOS and queued-but-invisible on Android.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+export interface PushRegistrationState {
+  /** Native push token. null while in flight or denied. */
+  token: string | null;
+  /** Where the token came from — "expo" (via Expo Push Service) or
+   *  "device" (raw FCM/APNs). null when token is null. */
+  provider: "expo" | "device" | null;
+  /** "undetermined" before we ask, then "granted" / "denied". */
+  status: Notifications.PermissionStatus | null;
+  /** True on simulators / emulators where push isn't available. */
+  unsupported: boolean;
+  /** Last error message, surfaced for debugging. */
+  error: string | null;
+}
+
+async function ensureAndroidChannel(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  await Notifications.setNotificationChannelAsync("default", {
+    name: "Default",
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: "#0B1D3A",
+    sound: "default",
+    enableVibrate: true,
+    enableLights: true,
+  });
+}
+
+async function requestPermission(): Promise<Notifications.PermissionStatus> {
+  // Check the existing status first to avoid the "request again on every
+  // launch" anti-pattern. The OS denies subsequent prompts after the
+  // user has already explicitly answered once.
+  const existing = await Notifications.getPermissionsAsync();
+  if (existing.status === "granted") return existing.status;
+  if (existing.status === "denied" && !existing.canAskAgain) return existing.status;
+  const next = await Notifications.requestPermissionsAsync({
+    ios: { allowAlert: true, allowBadge: false, allowSound: true },
+  });
+  return next.status;
+}
+
+// We try the Expo push token first (via Expo Push Service), but it
+// requires a configured EAS projectId. If we don't have one yet, fall
+// back to the raw native token (FCM on Android, APNs on iOS). Either
+// works — backends just need to know which provider to send via.
+async function fetchToken(): Promise<{ token: string; provider: "expo" | "device" } | null> {
+  const projectId =
+    (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId ??
+    Constants.easConfig?.projectId;
+  if (projectId) {
+    try {
+      const r = await Notifications.getExpoPushTokenAsync({ projectId });
+      return { token: r.data, provider: "expo" };
+    } catch {
+      // fall through to device token
+    }
+  }
+  try {
+    const r = await Notifications.getDevicePushTokenAsync();
+    if (typeof r.data === "string") return { token: r.data, provider: "device" };
+    // iOS APNs returns { type: 'apns', data: <hex string> }; some shapes
+    // wrap data in an object — coerce to string for storage.
+    return { token: JSON.stringify(r.data), provider: "device" };
+  } catch {
+    return null;
+  }
+}
+
+// Caller-facing helper to bounce the user to the OS notification
+// settings page for our app. Useful from the Profile row when permission
+// is denied or the borrower wants to tweak channels.
+export async function openSystemNotificationSettings(): Promise<void> {
+  try {
+    if (Platform.OS === "android") {
+      await Linking.openSettings();
+    } else {
+      await Linking.openURL("app-settings:");
+    }
+  } catch {
+    // best-effort — no-op if the OS rejects the deep link
+  }
+}
+
+export function usePushRegistration(): PushRegistrationState {
+  const [state, setState] = useState<PushRegistrationState>({
+    token: null,
+    provider: null,
+    status: null,
+    unsupported: false,
+    error: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!Device.isDevice) {
+          if (!cancelled) {
+            setState({ token: null, provider: null, status: null, unsupported: true, error: null });
+          }
+          return;
+        }
+        await ensureAndroidChannel();
+        const status = await requestPermission();
+        if (cancelled) return;
+        if (status !== "granted") {
+          setState({ token: null, provider: null, status, unsupported: false, error: null });
+          return;
+        }
+        const result = await fetchToken();
+        if (cancelled) return;
+        if (result) {
+          setState({ token: result.token, provider: result.provider, status, unsupported: false, error: null });
+        } else {
+          // Permission is granted but the token-fetch path was unavailable
+          // (no EAS projectId AND FCM not configured). Treat as success-
+          // partial: the OS will still show local notifications, but
+          // remote push won't reach this device until the projectId or
+          // google-services.json is set up.
+          setState({ token: null, provider: null, status, unsupported: false, error: null });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setState((prev) => ({ ...prev, error: message }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return state;
+}

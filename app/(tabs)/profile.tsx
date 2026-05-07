@@ -8,6 +8,7 @@ import { Icon } from "@/design-system/Icon";
 import { useCreditCurrent, useMe } from "@/hooks/useApi";
 import { Role } from "@/lib/enums.generated";
 import { TopBar } from "@/components/TopBar";
+import { openSystemNotificationSettings, usePushRegistration } from "@/lib/notifications";
 
 const ROLE_LABEL: Record<string, string> = {
   super_admin: "Super Admin",
@@ -21,13 +22,7 @@ function initialsOf(name: string | undefined): string {
   return name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 }
 
-const ACCOUNT_ROWS = [
-  { label: "Linked Banks · Plaid", desc: "3 connected",          icon: "shield" },
-  { label: "Investor Profile",     desc: "Tier II · LLC structures", icon: "user" },
-  { label: "Notifications",        desc: "Push + Email",         icon: "bell" },
-  { label: "Two-Factor Auth",      desc: "On · Authenticator app", icon: "key" },
-  { label: "Tax Documents",        desc: "2025 K-1 ready",       icon: "doc" },
-];
+type AccountRow = { label: string; desc: string; icon: string; onPress?: () => void };
 
 export default function Profile() {
   const { t, isDark, mode, setMode, toggle: _toggle } = useTheme();
@@ -35,8 +30,34 @@ export default function Profile() {
   const { signOut } = useAuth();
   const { data: user } = useMe();
   const { data: credit } = useCreditCurrent();
+  const push = usePushRegistration();
   const isClient = user?.role === Role.CLIENT;
   void _toggle;
+
+  // Notifications status pulled from the live registration hook so the
+  // borrower can confirm whether the OS-level permission is granted and
+  // see the device's push token (used by support for diagnostics until
+  // we wire POST /devices/push-tokens to persist it). Tap the row to
+  // open Android system settings for our app.
+  const notifDesc = push.unsupported
+    ? "Not supported on this device"
+    : push.error
+      ? "Tap to open system settings"
+      : push.status === "granted"
+        ? push.token
+          ? `On · ${push.provider === "expo" ? "expo" : "fcm"}…${push.token.slice(-6)}`
+          : "On · token pending setup"
+        : push.status === "denied"
+          ? "Off · tap to enable"
+          : "Awaiting permission…";
+
+  const ACCOUNT_ROWS: AccountRow[] = [
+    { label: "Linked Banks · Plaid", desc: "3 connected", icon: "shield" },
+    { label: "Investor Profile", desc: "Tier II · LLC structures", icon: "user" },
+    { label: "Notifications", desc: notifDesc, icon: "bell", onPress: openSystemNotificationSettings },
+    { label: "Two-Factor Auth", desc: "On · Authenticator app", icon: "key" },
+    { label: "Tax Documents", desc: "2025 K-1 ready", icon: "doc" },
+  ];
 
   const handleSignOut = () => {
     Alert.alert(
@@ -205,12 +226,14 @@ export default function Profile() {
           {ACCOUNT_ROWS.map((row, i) => (
             <Pressable
               key={row.label}
+              onPress={row.onPress}
+              disabled={!row.onPress}
               style={({ pressed }) => ({
                 flexDirection: "row", alignItems: "center", gap: 12,
                 paddingVertical: 13, paddingHorizontal: 14,
                 borderBottomWidth: i < ACCOUNT_ROWS.length - 1 ? 1 : 0,
                 borderBottomColor: t.line,
-                backgroundColor: pressed ? t.surface2 : "transparent",
+                backgroundColor: pressed && row.onPress ? t.surface2 : "transparent",
               })}
             >
               <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: t.surface2, alignItems: "center", justifyContent: "center" }}>

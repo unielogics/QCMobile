@@ -24,7 +24,8 @@
       },
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.READ_EXTERNAL_STORAGE"
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -42,7 +43,17 @@
           "microphonePermission": false
         }
       ],
-      "expo-document-picker"
+      "expo-document-picker",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#0B1D3A",
+          "defaultChannel": "default",
+          "androidMode": "default",
+          "androidCollapsedTitle": "Qualified Commercial"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false

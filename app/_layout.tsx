@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { ThemeProvider } from "@/design-system/ThemeProvider";
+import { usePushRegistration } from "@/lib/notifications";
 
 // React Query's `refetchOnWindowFocus` does nothing in React Native unless
 // focusManager is told what counts as "focus". Hook it up to AppState so
@@ -29,6 +30,11 @@ function AuthGate() {
   const { isLoaded, isSignedIn } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  // Kick off push-notification registration on first mount. Permission
+  // prompt fires once; the resulting Expo push token is exposed via the
+  // hook for the Profile screen to display + (later) POST to backend.
+  usePushRegistration();
 
   useEffect(() => {
     if (!isLoaded) return;
