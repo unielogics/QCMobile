@@ -15,6 +15,10 @@ import type {
   DocumentUploadInitResponse,
   AIChatRequest,
   AIChatResponse,
+  AIChatThread,
+  AIChatThreadDetail,
+  AIChatSendResponse,
+  ClientLivingProfile,
   CalendarEvent,
   DashboardReport,
   FredSeriesSummary,
@@ -267,6 +271,92 @@ export function useAIChat() {
         method: "POST",
         body: JSON.stringify(payload),
       }),
+  });
+}
+
+// ── Persisted Underwriter chat threads (Phase 8) ──────────────────────────
+
+export function useAIChatThreads() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["aiChatThreads", key],
+    queryFn: () => fetcher<AIChatThread[]>("/ai/chat/threads"),
+  });
+}
+
+export function useAIChatThread(threadId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["aiChatThread", threadId, key],
+    queryFn: () => fetcher<AIChatThreadDetail>(`/ai/chat/threads/${threadId}`),
+    enabled: !!threadId,
+  });
+}
+
+export function useCreateAIChatThread() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  const key = useCacheKey();
+  return useMutation({
+    mutationFn: (payload: { title?: string | null }) =>
+      fetcher<AIChatThread>("/ai/chat/threads", {
+        method: "POST",
+        body: JSON.stringify(payload ?? {}),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["aiChatThreads", key] }),
+  });
+}
+
+export function useSendAIChatMessage() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  const key = useCacheKey();
+  return useMutation({
+    mutationFn: ({ threadId, body, loan_id }: { threadId: string; body: string; loan_id?: string | null }) =>
+      fetcher<AIChatSendResponse>(`/ai/chat/threads/${threadId}/message`, {
+        method: "POST",
+        body: JSON.stringify({ body, loan_id: loan_id ?? null }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["aiChatThread", vars.threadId, key] });
+      qc.invalidateQueries({ queryKey: ["aiChatThreads", key] });
+    },
+  });
+}
+
+export function useDeleteAIChatThread() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  const key = useCacheKey();
+  return useMutation({
+    mutationFn: (threadId: string) =>
+      fetcher<void>(`/ai/chat/threads/${threadId}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["aiChatThreads", key] }),
+  });
+}
+
+// ── Account-wide living profile (Phase 8) ─────────────────────────────────
+
+export function useMyLivingProfile() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["myLivingProfile", key],
+    queryFn: () => fetcher<ClientLivingProfile>("/clients/me/living-profile"),
+    staleTime: 60_000,
+  });
+}
+
+export function useRefreshMyLivingProfile() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  const key = useCacheKey();
+  return useMutation({
+    mutationFn: () =>
+      fetcher<ClientLivingProfile>("/clients/me/summary/refresh", { method: "POST" }),
+    onSuccess: (data) => qc.setQueryData(["myLivingProfile", key], data),
   });
 }
 

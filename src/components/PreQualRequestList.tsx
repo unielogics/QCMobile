@@ -80,6 +80,32 @@ function RequestRow({ req }: { req: PrequalRequest }) {
   const showApproved = approvedAmount != null && approvedAmount !== requestedAmount;
   const programLabel = PREQUAL_LOAN_TYPE_LABELS[req.loan_type]?.title ?? req.loan_type;
 
+  // F&F is sized against ARV, not BRV — showing "$300K of $85K" looks
+  // broken to a borrower even on a perfectly normal F&F deal.
+  const isFixFlip = req.loan_type === "fix_flip";
+  const arvNum = req.approved_arv != null
+    ? Number(req.approved_arv)
+    : req.arv_estimate != null
+      ? Number(req.arv_estimate)
+      : 0;
+  const purchaseNum = Number(req.purchase_price);
+  const denomLabel = isFixFlip
+    ? (arvNum > 0 ? `${QC_FMT.usd(arvNum, 0)} ARV` : `${QC_FMT.usd(purchaseNum, 0)} BRV`)
+    : QC_FMT.usd(purchaseNum, 0);
+  const denomConnector = isFixFlip ? "against" : "of";
+
+  // Hide stale "[Auto-approval declined]" notes once the prequal has
+  // been approved — the operator's manual approval supersedes the
+  // earlier auto-evaluator decision and the notes are misleading.
+  const visibleAdminNotes = (() => {
+    const raw = req.admin_notes ?? "";
+    if (!raw) return null;
+    if ((status === "approved" || status === "offer_accepted") && raw.startsWith("[Auto-approval declined]")) {
+      return null;
+    }
+    return raw;
+  })();
+
   const submitOutcome = async () => {
     if (outcomeMode == null) return;
     setOutcomeError(null);
@@ -110,7 +136,7 @@ function RequestRow({ req }: { req: PrequalRequest }) {
         {req.target_property_address}
       </Text>
       <Text style={{ fontSize: 12, color: t.ink2, marginTop: 4, fontVariant: ["tabular-nums"] }}>
-        {`Requested ${QC_FMT.usd(requestedAmount, 0)} of ${QC_FMT.usd(Number(req.purchase_price), 0)}`}
+        {`Requested ${QC_FMT.usd(requestedAmount, 0)} ${denomConnector} ${denomLabel}`}
         {showApproved ? (
           <Text style={{ color: t.profit, fontWeight: "800" }}>
             {`  ·  approved at ${QC_FMT.usd(approvedAmount as number, 0)}`}
@@ -135,7 +161,7 @@ function RequestRow({ req }: { req: PrequalRequest }) {
       ) : null}
 
       {/* Underwriter notes (visible to borrower in-app) */}
-      {req.admin_notes ? (
+      {visibleAdminNotes ? (
         <View style={{
           marginTop: 10,
           paddingVertical: 8,
@@ -149,7 +175,7 @@ function RequestRow({ req }: { req: PrequalRequest }) {
             Underwriter notes
           </Text>
           <Text style={{ fontSize: 12, color: t.ink2, fontStyle: "italic", lineHeight: 17 }}>
-            {req.admin_notes}
+            {visibleAdminNotes}
           </Text>
         </View>
       ) : null}
