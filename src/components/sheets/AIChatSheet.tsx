@@ -134,24 +134,25 @@ export function AIChatSheet({ visible, onClose, context }: Props) {
 
   return (
     <Modal
-      // Full-screen presentation rather than a transparent overlay — we
-      // want a native-messaging-app feel: header at the top, thread in
-      // the middle, composer pinned at the bottom, keyboard pushing the
-      // composer up and shrinking the thread above it.
+      // Use `transparent` like every OTHER sheet in this app — Android
+      // routes touches through the existing window. With
+      // presentationStyle="fullScreen" (the previous attempt) Android
+      // creates a separate Activity-style window where Pressables
+      // visually render but never fire — the chat felt frozen. We get
+      // the same fullscreen LOOK by filling the inner View with t.bg
+      // and skipping the backdrop dim.
       animationType="slide"
+      transparent
       visible={visible}
       onRequestClose={onClose}
-      presentationStyle="fullScreen"
     >
       <View
         style={{
           flex: 1,
           backgroundColor: t.bg,
-          // Manual top inset for the status bar — using SafeAreaView from
-          // react-native-safe-area-context inside a Modal swallowed all
-          // touches on Android (SafeAreaProvider context doesn't extend
-          // into Modal children). Plain View + StatusBar.currentHeight
-          // gives us the same layout without breaking hit-testing.
+          // Manual top inset for the status bar (no SafeAreaView since
+          // there's no SafeAreaProvider at the app root and the inner
+          // SafeAreaView swallowed touches anyway).
           paddingTop: Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0,
         }}
       >
