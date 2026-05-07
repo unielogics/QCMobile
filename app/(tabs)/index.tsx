@@ -223,7 +223,7 @@ export default function Home() {
         >
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Text style={{ fontSize: 11, fontWeight: "700", letterSpacing: 1.6, color: t.ink3, textTransform: "uppercase" }}>
-              Your loans
+              Your pipeline
             </Text>
             <Icon name="chevR" size={11} color={t.ink3} />
           </View>
@@ -259,7 +259,7 @@ export default function Home() {
               })}
             >
               <Text style={{ fontSize: 12, fontWeight: "700", color: t.brand }}>
-                See all {loans.length} loans →
+                Open full pipeline ({loans.length}) →
               </Text>
             </Pressable>
           ) : null}
