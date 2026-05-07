@@ -35,7 +35,7 @@ import { Role } from "@/lib/enums.generated";
 import type { Loan } from "@/lib/types";
 import { TopBar } from "@/components/TopBar";
 import { Fab } from "@/components/Fab";
-import { NewLoanSheet } from "@/components/sheets/NewLoanSheet";
+import { AIChatSheet } from "@/components/sheets/AIChatSheet";
 
 const STAGE_KEYS = ["prequalified", "collecting_docs", "lender_connected", "processing", "closing", "funded"] as const;
 const TYPE_ICON: Record<string, string> = {
@@ -90,7 +90,12 @@ export default function Home() {
   const { data: report } = useDashboardReport();
   const { data: events = [] } = useCalendar();
   const { data: credit } = useMyCredit();
-  const [showNewLoan, setShowNewLoan] = useState(false);
+  // The dashboard FAB now opens the AI Intelligent Underwriter chat
+  // instead of the new-loan sheet. Per-loan AI chats stay accessible
+  // from each loan's detail screen; the dashboard surface is the
+  // account-wide entry point. New-loan creation moves to the
+  // simulator's flows (already there).
+  const [showAIChat, setShowAIChat] = useState(false);
 
   const isClient = user?.role === Role.CLIENT;
   const inFlight = useMemo(() => loans.filter((l) => l.stage !== "funded"), [loans]);
@@ -283,14 +288,11 @@ export default function Home() {
         ) : null}
       </ScrollView>
 
-      <Fab onPress={() => setShowNewLoan(true)} />
-      <NewLoanSheet
-        visible={showNewLoan}
-        onClose={() => setShowNewLoan(false)}
-        onPick={(loanType) => {
-          setShowNewLoan(false);
-          console.log("New loan picked:", loanType);
-        }}
+      <Fab onPress={() => setShowAIChat(true)} icon="spark" />
+      <AIChatSheet
+        visible={showAIChat}
+        onClose={() => setShowAIChat(false)}
+        context="From your dashboard"
       />
     </SafeAreaView>
   );

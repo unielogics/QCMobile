@@ -27,10 +27,14 @@ import {
   PREQUAL_LOAN_TYPE_LABELS,
   PREQUAL_LTV_CAPS,
   type PrequalLoanType,
+  type PrequalSowLineItem,
 } from "@/lib/types";
 
 const LTV_CAPS = PREQUAL_LTV_CAPS;
 const PRODUCT_OPTIONS: PrequalLoanType[] = ["dscr_purchase", "dscr_refi", "fix_flip", "bridge"];
+
+// F&F project-viability cap — keep in sync with desktop.
+const FF_LTARV_CAP = 0.75;
 
 interface Props {
   visible: boolean;
@@ -62,6 +66,12 @@ export function PreQualRequestSheet({
   const [notes, setNotes] = useState("");
   const [entityTBD, setEntityTBD] = useState(true);
   const [entityName, setEntityName] = useState("");
+  // F&F-only — ARV (After Repair Value) + scope-of-work line items.
+  // Step gating: when loan_type=fix_flip the form switches into a
+  // 2-step flow; non-F&F products stay single-step.
+  const [arvText, setArvText] = useState("");
+  const [sowItems, setSowItems] = useState<PrequalSowLineItem[]>([]);
+  const [step, setStep] = useState<1 | 2>(1);
   const [error, setError] = useState<string | null>(null);
   const [doneFlash, setDoneFlash] = useState(false);
 
@@ -75,6 +85,9 @@ export function PreQualRequestSheet({
       setNotes("");
       setEntityTBD(true);
       setEntityName("");
+      setArvText("");
+      setSowItems([]);
+      setStep(1);
       setError(null);
       setDoneFlash(false);
     }
@@ -82,23 +95,40 @@ export function PreQualRequestSheet({
 
   const purchaseNum = Number(purchaseText.replace(/[^0-9.]/g, "")) || 0;
   const loanNum = Number(loanText.replace(/[^0-9.]/g, "")) || 0;
+  const arvNum = Number(arvText.replace(/[^0-9.]/g, "")) || 0;
   const ltv = purchaseNum > 0 ? loanNum / purchaseNum : 0;
-  // Effective LTV cap = the tighter of program ceiling and tier ceiling.
-  // tier_max_ltv comes from /credit/summary (e.g. blocked → 0,
-  // basic/warn → 0.65, pro → 0.75). When no credit summary is on file
-  // we fall back to the program cap alone.
   const programCap = LTV_CAPS[loanType];
   const tierMaxLtv = creditSummary?.tier_max_ltv ?? null;
   const tierConstrained = tierMaxLtv != null && tierMaxLtv > 0 && tierMaxLtv < programCap;
   const effectiveCap = tierConstrained ? (tierMaxLtv as number) : programCap;
   const maxLoan = purchaseNum > 0 ? purchaseNum * effectiveCap : 0;
   const ltvOverCap = ltv > effectiveCap + 1e-6;
-  const formValid = address.trim().length >= 3 && purchaseNum > 0 && loanNum > 0;
+  const isFixFlip = loanType === "fix_flip";
+
+  // F&F project-viability math.
+  const totalConstruction = sowItems.reduce(
+    (sum, item) => sum + (Number(item.total_usd) || 0),
+    0,
+  );
+  const allInBasis = purchaseNum + totalConstruction;
+  const ltarv = arvNum > 0 ? allInBasis / arvNum : 0;
+  const ltarvOverCap = ltarv > FF_LTARV_CAP + 1e-6;
+
+  const step1Valid =
+    address.trim().length >= 3 &&
+    purchaseNum > 0 &&
+    loanNum > 0 &&
+    (!isFixFlip || arvNum > 0);
+  const formValid = isFixFlip ? step1Valid && sowItems.length > 0 : step1Valid;
 
   const onSubmit = async () => {
     setError(null);
     if (!formValid) {
-      setError("Please fill in property address, purchase price, and requested loan amount.");
+      setError(
+        isFixFlip
+          ? "Please fill in address, purchase price (BRV), ARV, requested loan, and at least one Scope of Work line."
+          : "Please fill in property address, purchase price, and requested loan amount.",
+      );
       return;
     }
     try {
@@ -114,6 +144,9 @@ export function PreQualRequestSheet({
         expected_closing_date: closingDate.trim() || null,
         borrower_notes: notes.trim() || null,
         borrower_entity: entityTBD ? null : (entityName.trim() || null),
+        // F&F-only fields. Backend ignores them on non-F&F products.
+        arv_estimate: isFixFlip ? arvNum : null,
+        sow_items: isFixFlip ? sowItems : null,
       });
       setDoneFlash(true);
       setTimeout(onClose, 1500);
@@ -173,6 +206,23 @@ export function PreQualRequestSheet({
               </View>
             ) : (
               <ScrollView contentContainerStyle={{ paddingTop: 14, paddingBottom: 8, gap: 14 }} showsVerticalScrollIndicator={false}>
+                {/* F&F gets a 2-step flow. Step 1 is the deal
+                    fundamentals; Step 2 is the SOW. Other products
+                    skip the indicator and stay single-step. */}
+                {isFixFlip ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text style={{ fontSize: 11, fontWeight: "800", color: step === 1 ? t.brand : t.ink3, letterSpacing: 1, textTransform: "uppercase" }}>
+                      1 · Deal
+                    </Text>
+                    <Text style={{ fontSize: 12, color: t.ink4 }}>›</Text>
+                    <Text style={{ fontSize: 11, fontWeight: "800", color: step === 2 ? t.brand : t.ink4, letterSpacing: 1, textTransform: "uppercase" }}>
+                      2 · Scope of work
+                    </Text>
+                  </View>
+                ) : null}
+
+                {step === 1 ? (
+                <>
                 {/* Loan program — 2x2 grid of 4 products */}
                 <View>
                   <FieldLabel t={t}>Loan program</FieldLabel>
@@ -251,7 +301,13 @@ export function PreQualRequestSheet({
                   <View style={{ flex: 1 }}>
                     <FieldText
                       t={t}
-                      label={loanType === "dscr_refi" ? "Property value" : "Purchase price"}
+                      label={
+                        loanType === "dscr_refi"
+                          ? "Property value"
+                          : isFixFlip
+                            ? "Purchase (BRV)"
+                            : "Purchase price"
+                      }
                       value={purchaseText}
                       onChange={setPurchaseText}
                       placeholder="400000"
@@ -292,6 +348,20 @@ export function PreQualRequestSheet({
                       ? `over ${Math.round(effectiveCap * 100)}% cap${tierConstrained ? " (tier)" : ""} — underwriter will adjust`
                       : `within ${Math.round(effectiveCap * 100)}% cap${tierConstrained ? " (tier-adjusted)" : ""}`}`}
                   </Pill>
+                ) : null}
+
+                {/* F&F-only: ARV (After Repair Value). Sits on Step 1
+                    so the borrower sees the BRV/ARV delta before
+                    they're walked into Scope of Work. */}
+                {isFixFlip ? (
+                  <FieldText
+                    t={t}
+                    label="Estimated ARV (After Repair Value)"
+                    value={arvText}
+                    onChange={setArvText}
+                    placeholder="600000"
+                    keyboardType="numeric"
+                  />
                 ) : null}
 
                 {/* Closing date — plain text (no native date picker dependency) */}
@@ -360,18 +430,78 @@ export function PreQualRequestSheet({
                   </Text>
                 </View>
 
+                </>
+                ) : null}
+
+                {/* Step 2 — F&F Scope of Work editor. */}
+                {isFixFlip && step === 2 ? (
+                  <View style={{ gap: 10 }}>
+                    <FieldLabel t={t}>Scope of work</FieldLabel>
+                    <Text style={{ fontSize: 11.5, color: t.ink3, lineHeight: 16 }}>
+                      Add a row for each major rehab category. The total
+                      drives our project-viability check ({Math.round(FF_LTARV_CAP * 100)}% of ARV
+                      cap on BRV + construction). Sellers don&apos;t see this list.
+                    </Text>
+
+                    <SowMobileEditor
+                      t={t}
+                      items={sowItems}
+                      onChange={setSowItems}
+                    />
+
+                    {arvNum > 0 && allInBasis > 0 ? (
+                      <Pill
+                        bg={ltarvOverCap ? t.dangerBg : t.profitBg}
+                        color={ltarvOverCap ? t.danger : t.profit}
+                      >
+                        {`All-in ${QC_FMT.usd(allInBasis, 0)} ÷ ARV ${QC_FMT.usd(arvNum, 0)} = ${(ltarv * 100).toFixed(1)}% · ${ltarvOverCap
+                          ? `over ${Math.round(FF_LTARV_CAP * 100)}% cap — underwriter will review`
+                          : `within ${Math.round(FF_LTARV_CAP * 100)}% project cap`}`}
+                      </Pill>
+                    ) : null}
+                  </View>
+                ) : null}
+
                 {error ? (
                   <Pill bg={t.dangerBg} color={t.danger}>{error}</Pill>
                 ) : null}
 
                 <View style={{ marginTop: 4, gap: 10 }}>
-                  <QButton
-                    label={submit.isPending ? "Submitting…" : "Submit for review"}
-                    onPress={onSubmit}
-                    disabled={!formValid || submit.isPending}
-                    icon="check"
-                    variant="primary"
-                  />
+                  {isFixFlip && step === 1 ? (
+                    <QButton
+                      label="Continue → Scope of Work"
+                      onPress={() => {
+                        if (!step1Valid) {
+                          setError(
+                            "Please fill in address, BRV, ARV, and requested loan amount before continuing.",
+                          );
+                          return;
+                        }
+                        setError(null);
+                        setStep(2);
+                      }}
+                      disabled={!step1Valid}
+                      icon="arrowR"
+                      variant="primary"
+                    />
+                  ) : (
+                    <>
+                      {isFixFlip && step === 2 ? (
+                        <QButton
+                          label="← Back"
+                          onPress={() => { setError(null); setStep(1); }}
+                          variant="ghost"
+                        />
+                      ) : null}
+                      <QButton
+                        label={submit.isPending ? "Submitting…" : "Submit for review"}
+                        onPress={onSubmit}
+                        disabled={!formValid || submit.isPending}
+                        icon="check"
+                        variant="primary"
+                      />
+                    </>
+                  )}
                   <Text style={{ fontSize: 11, color: t.ink3, lineHeight: 15.5 }}>
                     Submitting just opens an underwriter review — no loan file is
                     created yet. Once approved, you&apos;ll download the letter, present
@@ -442,4 +572,144 @@ function inputStyle(t: ReturnType<typeof useTheme>["t"]) {
     fontSize: 13,
     color: t.ink,
   } as const;
+}
+
+// Mobile-native scope-of-work editor. Each row is its own card so the
+// touch targets stay big and the editor doesn't fight the on-screen
+// keyboard. Add Row materializes the first row; ✕ icon removes a row.
+// Total construction running sum sits at the bottom.
+function SowMobileEditor({
+  t,
+  items,
+  onChange,
+}: {
+  t: ReturnType<typeof useTheme>["t"];
+  items: PrequalSowLineItem[];
+  onChange: (next: PrequalSowLineItem[]) => void;
+}) {
+  const total = items.reduce((sum, item) => sum + (Number(item.total_usd) || 0), 0);
+  const setItem = (idx: number, patch: Partial<PrequalSowLineItem>) => {
+    onChange(items.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+  };
+  const removeItem = (idx: number) => {
+    onChange(items.filter((_, i) => i !== idx));
+  };
+  const addItem = () => {
+    onChange([...items, { category: "", description: "", total_usd: 0 }]);
+  };
+
+  return (
+    <View style={{ gap: 8 }}>
+      {items.length === 0 ? (
+        <View style={{
+          padding: 14,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: t.line,
+          borderStyle: "dashed",
+          backgroundColor: t.surface2,
+          alignItems: "center",
+        }}>
+          <Text style={{ fontSize: 12, color: t.ink3, lineHeight: 17 }}>
+            No scope-of-work lines yet. Tap{" "}
+            <Text style={{ fontWeight: "800", color: t.ink2 }}>Add row</Text> below.
+          </Text>
+        </View>
+      ) : (
+        items.map((item, idx) => (
+          <View
+            key={idx}
+            style={{
+              padding: 10,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: t.line,
+              backgroundColor: t.surface,
+              gap: 6,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={{ flex: 1 }}>
+                <FieldLabel t={t}>Category</FieldLabel>
+                <TextInput
+                  value={item.category}
+                  onChangeText={(v) => setItem(idx, { category: v })}
+                  placeholder="Demo / HVAC / Plumbing"
+                  placeholderTextColor={t.ink4}
+                  style={inputStyle(t)}
+                />
+              </View>
+              <Pressable
+                onPress={() => removeItem(idx)}
+                hitSlop={8}
+                style={{ padding: 6, marginTop: 18 }}
+              >
+                <Icon name="x" size={14} color={t.ink3} />
+              </Pressable>
+            </View>
+
+            <View>
+              <FieldLabel t={t}>Description</FieldLabel>
+              <TextInput
+                value={item.description}
+                onChangeText={(v) => setItem(idx, { description: v })}
+                placeholder="Brief description"
+                placeholderTextColor={t.ink4}
+                style={inputStyle(t)}
+              />
+            </View>
+
+            <View>
+              <FieldLabel t={t}>Total $</FieldLabel>
+              <TextInput
+                value={String(item.total_usd || "")}
+                onChangeText={(v) => {
+                  const n = Number(v.replace(/[^0-9.]/g, "")) || 0;
+                  setItem(idx, { total_usd: n });
+                }}
+                placeholder="0"
+                placeholderTextColor={t.ink4}
+                keyboardType="numeric"
+                style={inputStyle(t)}
+              />
+            </View>
+          </View>
+        ))
+      )}
+
+      <Pressable
+        onPress={addItem}
+        style={({ pressed }) => ({
+          marginTop: 4,
+          paddingVertical: 10,
+          paddingHorizontal: 14,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: t.line,
+          backgroundColor: t.chip,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Icon name="plus" size={14} color={t.ink2} />
+        <Text style={{ fontSize: 13, fontWeight: "700", color: t.ink2 }}>Add row</Text>
+      </Pressable>
+
+      <View style={{
+        marginTop: 6, paddingTop: 8,
+        borderTopWidth: 1, borderTopColor: t.line,
+        flexDirection: "row", justifyContent: "space-between", alignItems: "baseline",
+      }}>
+        <Text style={{ fontSize: 11, fontWeight: "700", color: t.ink3, letterSpacing: 1, textTransform: "uppercase" }}>
+          Total construction
+        </Text>
+        <Text style={{ fontSize: 16, fontWeight: "800", color: t.ink, fontVariant: ["tabular-nums"] }}>
+          {QC_FMT.usd(total, 0)}
+        </Text>
+      </View>
+    </View>
+  );
 }

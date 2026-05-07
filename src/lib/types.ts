@@ -239,6 +239,14 @@ export type PrequalStatus =
 // app/routers/prequal.py LTV_CAPS.
 export type PrequalLoanType = "dscr_purchase" | "dscr_refi" | "fix_flip" | "bridge";
 
+// F&F scope-of-work line. Backend validates total_usd >= 0,
+// category 1-80 chars, description 0-500 chars (alembic 0014).
+export interface PrequalSowLineItem {
+  category: string;
+  description: string;
+  total_usd: number;
+}
+
 export const PREQUAL_LTV_CAPS: Record<PrequalLoanType, number> = {
   dscr_purchase: 0.80,
   dscr_refi: 0.75,
@@ -258,8 +266,16 @@ export interface PrequalRequest {
   loan_id: string | null;
   requester_id: string;
   target_property_address: string;
+  // For F&F: purchase_price is the BRV. For DSCR / Bridge it's the
+  // property purchase / value.
   purchase_price: number;
   requested_loan_amount: number;
+  // F&F-only (alembic 0014). Null on non-F&F products.
+  arv_estimate: number | null;
+  sow_items: PrequalSowLineItem[] | null;
+  total_construction: number | null;
+  approved_arv: number | null;
+  approved_total_construction: number | null;
   approved_purchase_price: number | null;
   approved_loan_amount: number | null;
   approved_scenario: Record<string, unknown> | null;
@@ -289,6 +305,9 @@ export interface PrequalRequestCreate {
   expected_closing_date?: string | null;
   borrower_notes?: string | null;
   borrower_entity?: string | null;
+  // F&F-only. Backend ignores when loan_type !== fix_flip.
+  arv_estimate?: number | null;
+  sow_items?: PrequalSowLineItem[] | null;
 }
 
 export interface PrequalSellerOutcome {
