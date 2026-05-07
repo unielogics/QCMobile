@@ -43,7 +43,21 @@ function isNotFound(err: unknown): boolean {
 }
 
 function useCacheKey() {
-  return useSession((s) => s.devUser);
+  // Returning a key that incorporates Clerk's `isLoaded` makes
+  // EVERY query that uses this helper auto-recover from the
+  // auth-readiness race: useAuthedFetch returns a never-resolving
+  // promise on the first render before Clerk has hydrated, and RQ
+  // doesn't auto-cancel the in-flight queryFn when its closure
+  // changes. By baking isLoaded into the key, the auth flip
+  // produces a NEW queryKey → RQ starts a fresh query with the
+  // updated fetcher → events arrive immediately.
+  //
+  // First seen on the calendar tab; the chat sheet hit the same
+  // bug because useAIChatThreads / useLoans / useAIChatThread all
+  // use this key.
+  const { isLoaded } = useAuth();
+  const devUser = useSession((s) => s.devUser);
+  return isLoaded ? devUser : `__auth_pending__${devUser ?? ""}`;
 }
 
 // /auth/me — canonical "who am I?". Mirrors qcdesktop's useCurrentUser:
