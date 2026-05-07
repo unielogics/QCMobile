@@ -331,5 +331,12 @@ export function useMyCredit() {
   return useQuery({
     queryKey: ["my-credit", key],
     queryFn: () => fetcher<CreditPullStatus | null>("/credit/current?client_id=self"),
+    // Force a refetch every time the screen mounts. Without this, screens
+    // that read this hook (home, calculator, profile) can render against
+    // a cached null from BEFORE the borrower ran a soft pull on another
+    // device, leaving the simulator falsely gated.
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 30 * 1000,
   });
 }
