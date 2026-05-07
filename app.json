@@ -53,7 +53,8 @@
           "androidMode": "default",
           "androidCollapsedTitle": "Qualified Commercial"
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": false

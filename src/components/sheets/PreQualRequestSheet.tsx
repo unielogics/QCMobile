@@ -18,6 +18,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 import { Pill, QButton } from "@/design-system/primitives";
@@ -96,14 +97,19 @@ export function PreQualRequestSheet({
   const purchaseNum = Number(purchaseText.replace(/[^0-9.]/g, "")) || 0;
   const loanNum = Number(loanText.replace(/[^0-9.]/g, "")) || 0;
   const arvNum = Number(arvText.replace(/[^0-9.]/g, "")) || 0;
-  const ltv = purchaseNum > 0 ? loanNum / purchaseNum : 0;
+  const isFixFlip = loanType === "fix_flip";
+  // F&F sizes the loan against the AFTER-repair value (ARV), not the
+  // purchase price — that's the value the lender will appraise to. For
+  // every other product (DSCR purchase/refi, Bridge), LTV stays based
+  // on the property's purchase / current value.
+  const ltvBasis = isFixFlip ? arvNum : purchaseNum;
+  const ltv = ltvBasis > 0 ? loanNum / ltvBasis : 0;
   const programCap = LTV_CAPS[loanType];
   const tierMaxLtv = creditSummary?.tier_max_ltv ?? null;
   const tierConstrained = tierMaxLtv != null && tierMaxLtv > 0 && tierMaxLtv < programCap;
   const effectiveCap = tierConstrained ? (tierMaxLtv as number) : programCap;
-  const maxLoan = purchaseNum > 0 ? purchaseNum * effectiveCap : 0;
+  const maxLoan = ltvBasis > 0 ? ltvBasis * effectiveCap : 0;
   const ltvOverCap = ltv > effectiveCap + 1e-6;
-  const isFixFlip = loanType === "fix_flip";
 
   // F&F project-viability math.
   const totalConstruction = sowItems.reduce(
@@ -338,13 +344,14 @@ export function PreQualRequestSheet({
                   </View>
                 </View>
 
-                {/* Live LTV pill */}
-                {purchaseNum > 0 && loanNum > 0 ? (
+                {/* Live LTV pill — basis is ARV for F&F, purchase price
+                    for everything else. */}
+                {ltvBasis > 0 && loanNum > 0 ? (
                   <Pill
                     bg={ltvOverCap ? t.dangerBg : t.profitBg}
                     color={ltvOverCap ? t.danger : t.profit}
                   >
-                    {`Requested LTV ${(ltv * 100).toFixed(1)}% · ${ltvOverCap
+                    {`Requested ${isFixFlip ? "LTARV" : "LTV"} ${(ltv * 100).toFixed(1)}% · ${ltvOverCap
                       ? `over ${Math.round(effectiveCap * 100)}% cap${tierConstrained ? " (tier)" : ""} — underwriter will adjust`
                       : `within ${Math.round(effectiveCap * 100)}% cap${tierConstrained ? " (tier-adjusted)" : ""}`}`}
                   </Pill>
@@ -364,14 +371,11 @@ export function PreQualRequestSheet({
                   />
                 ) : null}
 
-                {/* Closing date — plain text (no native date picker dependency) */}
-                <FieldText
+                {/* Closing date — calendar picker capped at 90 days out */}
+                <ClosingDateField
                   t={t}
-                  label="Expected closing date (YYYY-MM-DD)"
                   value={closingDate}
                   onChange={setClosingDate}
-                  placeholder="2026-06-15"
-                  autoCapitalize="none"
                 />
 
                 {/* LLC / entity */}
@@ -514,6 +518,80 @@ export function PreQualRequestSheet({
         </KeyboardAvoidingView>
       </View>
     </Modal>
+  );
+}
+
+// Closing-date picker — opens the native date dialog, locked to a
+// today-through-+90-day window. Stores the value as ISO yyyy-mm-dd
+// (what the backend's PrequalRequestCreate expects) and renders a
+// human-readable date in the row.
+function ClosingDateField({
+  t,
+  value,
+  onChange,
+}: {
+  t: ReturnType<typeof useTheme>["t"];
+  value: string;
+  onChange: (iso: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const max = new Date(today);
+  max.setDate(max.getDate() + 90);
+
+  const parsed = value ? new Date(value) : null;
+  const display = parsed && !Number.isNaN(parsed.getTime())
+    ? parsed.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+    : null;
+
+  const handleChange = (event: DateTimePickerEvent, picked?: Date) => {
+    // On Android the picker is a one-shot dialog — close on dismiss OR
+    // set. On iOS we keep the inline spinner open.
+    if (Platform.OS === "android") setOpen(false);
+    if (event.type !== "set" || !picked) return;
+    // Clamp into [today, today+90] in case the OS lets us through.
+    const clamped = new Date(
+      Math.min(Math.max(picked.getTime(), today.getTime()), max.getTime()),
+    );
+    const yyyy = clamped.getFullYear();
+    const mm = String(clamped.getMonth() + 1).padStart(2, "0");
+    const dd = String(clamped.getDate()).padStart(2, "0");
+    onChange(`${yyyy}-${mm}-${dd}`);
+  };
+
+  return (
+    <View>
+      <FieldLabel t={t}>Expected closing date</FieldLabel>
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={({ pressed }) => ({
+          ...inputStyle(t),
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Text style={{ fontSize: 14, color: display ? t.ink : t.ink4 }}>
+          {display ?? "Tap to pick a date"}
+        </Text>
+        <Icon name="cal" size={14} color={t.ink3} />
+      </Pressable>
+      <Text style={{ fontSize: 11, color: t.ink3, marginTop: 6 }}>
+        Up to 90 days out · most pre-quals close within 30–45 days
+      </Text>
+      {open ? (
+        <DateTimePicker
+          value={parsed && !Number.isNaN(parsed.getTime()) ? parsed : today}
+          mode="date"
+          display={Platform.OS === "ios" ? "inline" : "default"}
+          minimumDate={today}
+          maximumDate={max}
+          onChange={handleChange}
+        />
+      ) : null}
+    </View>
   );
 }
 
