@@ -54,13 +54,6 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="messages"
-        options={{
-          title: "Messages",
-          tabBarIcon: ({ color, focused }) => <TabIcon name="chat" color={color} focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",
