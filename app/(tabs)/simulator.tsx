@@ -85,6 +85,9 @@ export default function Simulator() {
   const [payoffText, setPayoffText] = useState("0");
   const [monthlyRentText, setMonthlyRentText] = useState("");
   const [points, setPoints] = useState(1);
+  // HUD breakdown is opt-in — keeps the calculator + hero rate at the top
+  // of the screen on phones instead of pushing them above the fold.
+  const [hudOpen, setHudOpen] = useState(false);
   const initialLtv = Math.min(eligibility.maxLTV * 100 || 65, 65);
   const [ltvPct, setLtvPct] = useState(initialLtv);
   const [requestedLoanText, setRequestedLoanText] = useState<string | null>(null);
@@ -478,13 +481,37 @@ export default function Simulator() {
           </Card>
         ) : null}
 
-        {/* HUD-1 breakdown */}
+        {/* HUD-1 breakdown — collapsed by default. Tap the header to
+            expand. The Total + Cash-to-borrower / equity rows always
+            show so the borrower sees the headline figures. */}
         {sim ? (
           <Card pad={0} style={{ overflow: "hidden", marginBottom: 12 }}>
-            <View style={{ paddingVertical: 12, paddingHorizontal: 16, backgroundColor: t.surface2, borderBottomWidth: 1, borderBottomColor: t.line }}>
-              <Text style={{ fontSize: 9.5, fontWeight: "700", letterSpacing: 1.2, color: t.ink3, textTransform: "uppercase" }}>HUD-1 estimated closing</Text>
-              <Text style={{ fontSize: 11, color: t.ink3, marginTop: 1 }}>Estimate · subject to verification</Text>
-            </View>
+            <Pressable
+              onPress={() => setHudOpen((v) => !v)}
+              style={({ pressed }) => ({
+                paddingVertical: 12,
+                paddingHorizontal: 16,
+                backgroundColor: t.surface2,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                opacity: pressed ? 0.85 : 1,
+                borderBottomWidth: hudOpen ? 1 : 0,
+                borderBottomColor: t.line,
+              })}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 9.5, fontWeight: "700", letterSpacing: 1.2, color: t.ink3, textTransform: "uppercase" }}>
+                  Closing details
+                </Text>
+                <Text style={{ fontSize: 11, color: t.ink3, marginTop: 1 }}>
+                  Total to close · {QC_FMT.usd(sim.totalToClose, 0)} · tap to {hudOpen ? "hide" : "see HUD-1"}
+                </Text>
+              </View>
+              <Icon name={hudOpen ? "chevU" : "chevD"} size={14} color={t.ink3} />
+            </Pressable>
+            {hudOpen ? (
+            <>
             {[
               { l: "801 · Origination Fee", sub: "0.75% of loan amount", v: sim.origination },
               { l: "802 · Discount Points", sub: `${points.toFixed(2)} pts`, v: sim.pointsCost, hl: true },
@@ -528,6 +555,8 @@ export default function Simulator() {
                 <Text style={{ fontSize: 12, fontWeight: "600", color: t.ink2 }}>Borrower equity (cash to close)</Text>
                 <Text style={{ fontSize: 16, fontWeight: "700", color: t.ink }}>{QC_FMT.usd(sim.cashToClose, 0)}</Text>
               </View>
+            ) : null}
+            </>
             ) : null}
           </Card>
         ) : null}
