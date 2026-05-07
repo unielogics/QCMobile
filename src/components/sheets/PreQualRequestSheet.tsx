@@ -157,7 +157,17 @@ export function PreQualRequestSheet({
       setDoneFlash(true);
       setTimeout(onClose, 1500);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Submission failed — please retry.");
+      const msg = e instanceof Error ? e.message : "";
+      // 502 / 504 here usually means the backend wrote the row but
+      // timed out during PDF render. The mutation hook invalidates
+      // the prequal list on error too, so the request will appear on
+      // the borrower's queue. Soften the copy to match.
+      const isGatewayTimeout = /\b50[24]\b/.test(msg);
+      setError(
+        isGatewayTimeout
+          ? "Submission likely went through but the server took too long to confirm. Check My Pre-Qual Requests; the row should appear in a moment."
+          : msg || "Submission failed — please retry.",
+      );
     }
   };
 

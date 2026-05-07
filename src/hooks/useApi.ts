@@ -433,6 +433,13 @@ export function useSubmitPrequalRequest() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["prequal-requests"] });
     },
+    // Even on error we refresh the list — F&F auto-approval can write
+    // the row to the DB, then time out during PDF render and surface as
+    // 502/504 to the proxy. The borrower's request is real either way;
+    // we want them to see it on the next render rather than re-submit.
+    onError: () => {
+      qc.invalidateQueries({ queryKey: ["prequal-requests"] });
+    },
   });
 }
 
