@@ -115,9 +115,15 @@ export function useLoan(loanId: string | null | undefined) {
 export function useCreditCurrent() {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
+  // Gate on Clerk readiness — useAuthedFetch returns a never-resolving
+  // promise while Clerk is still loading, which would otherwise leave
+  // this query stuck in `pending` forever for any screen that mounts
+  // before sign-in finishes (notably the Home tab, which is the default).
+  const { isLoaded } = useAuth();
   return useQuery({
     queryKey: ["credit-current", key],
     queryFn: () => fetcher<CreditPullStatus | null>("/credit/current"),
+    enabled: isLoaded,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
     staleTime: 30 * 1000,
@@ -293,11 +299,16 @@ export function useCalendar() {
 export function useFredSeries(days?: number) {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
+  // Same Clerk-readiness gate as useCreditCurrent — the home tab mounts
+  // before sign-in finishes, and a never-resolving promise from the
+  // pre-Clerk fetcher would leave the rate strip stuck on "—".
+  const { isLoaded } = useAuth();
   const requested = days != null ? Math.max(1, Math.min(days, 90)) : undefined;
   const path = requested ? `/fred/series?days=${requested}` : "/fred/series";
   return useQuery({
     queryKey: ["fredSeries", key, requested ?? "default"],
     queryFn: () => fetcher<FredSeriesSummary[]>(path),
+    enabled: isLoaded,
     // Previously: 5-min staleTime + 1-retry cap meant a single transient
     // 401 (e.g. during a sign-in race) left the hook stuck on the cached
     // error for 5 min — and the user saw "market rates not loading".
