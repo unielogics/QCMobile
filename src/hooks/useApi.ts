@@ -288,6 +288,39 @@ export function useCalendar() {
   return useQuery({
     queryKey: ["calendar", key],
     queryFn: () => fetcher<CalendarEvent[]>("/calendar"),
+    // Borrower hits the tab expecting fresh status — emitter-driven
+    // events (doc due, closing day, etc.) appear without a manual
+    // refresh.
+    staleTime: 30 * 1000,
+  });
+}
+
+// PATCH /calendar/{id} — mark done / re-open. Borrowers may only flip
+// status; backend enforces. Operators can also patch title/who/etc.
+export function useUpdateCalendarEvent() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: string;
+      patch: Partial<{
+        status: "pending" | "done" | "cancelled";
+        title: string;
+        description: string | null;
+        starts_at: string;
+        priority: "low" | "medium" | "high" | null;
+      }>;
+    }) =>
+      fetcher<CalendarEvent>(`/calendar/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["calendar"] });
+    },
   });
 }
 

@@ -172,16 +172,25 @@ export interface AIChatResponse {
   used_stub: boolean;
 }
 
-// Calendar (mirrors qcdesktop/src/lib/types.ts CalendarEvent)
+// Calendar (mirrors qcdesktop/src/lib/types.ts CalendarEvent + alembic 0013).
+export type CalendarEventStatus = "pending" | "done" | "cancelled";
+export type CalendarEventSource = "manual" | "auto" | "ai";
+
 export interface CalendarEvent {
   id: string;
   loan_id: string | null;
   kind: CalendarEventKind;
   title: string;
+  description: string | null;
   who: string | null;
   starts_at: string;
   duration_min: number | null;
   priority: "low" | "medium" | "high" | null;
+  status: CalendarEventStatus;
+  source: CalendarEventSource;
+  owner_user_id: string | null;
+  external_ref_kind: string | null;
+  external_ref_id: string | null;
 }
 
 // Reports/dashboard
