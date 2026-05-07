@@ -420,9 +420,19 @@ export function useDashboardReport() {
 export function useCalendar() {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
+  // Gate on Clerk's `isLoaded`. When the user hits the Calendar tab
+  // before auth has hydrated, the fetcher returns a never-resolving
+  // promise (the auth-readiness gate inside useAuthedFetch). React
+  // Query doesn't auto-cancel an in-flight queryFn when its
+  // closure changes, so without this we'd stay in `pending` even
+  // after auth comes up. Putting `isLoaded` in the queryKey makes
+  // the auth-flip create a fresh query that uses the working
+  // fetcher → resolves immediately.
+  const { isLoaded } = useAuth();
   return useQuery({
-    queryKey: ["calendar", key],
+    queryKey: ["calendar", key, isLoaded],
     queryFn: () => fetcher<CalendarEvent[]>("/calendar"),
+    enabled: isLoaded,
     // Borrower hits the tab expecting fresh status — emitter-driven
     // events (doc due, closing day, etc.) appear without a manual
     // refresh.

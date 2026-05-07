@@ -1,23 +1,23 @@
 // AI Intelligent Underwriter chat sheet (mobile).
 //
-// Default landing surface = the conversations LIST. Operators
-// don't auto-jump into a specific chat unless the caller passes
-// `initialThreadId` (from the Messages tab tap, the loan detail
-// page, or the pipeline). The Dashboard / Calendar FAB opens to
-// the list so users can pick which conversation to enter.
+// Default landing surface = the conversations LIST. The list is
+// DERIVED, not raw — exactly one Account thread row + one row per
+// loan the user has, so we can never show duplicates regardless of
+// what the DB has. Threads lazy-create on first tap via the
+// /ai/chat/threads/find-or-create endpoint (canonical guarantee:
+// alembic 0017 partial unique idx on (user, loan), 0018 partial
+// unique idx on (user) WHERE loan_id IS NULL).
 //
-// Phase 8 + 0017: per-thread persistence + per-loan threads. The
-// list shows account thread + every loan thread; long-press a
-// row to delete.
+// Caller paths:
+//   FAB (Dashboard / Calendar)     no initialThreadId → list view
+//   Loan detail / pipeline          initialThreadId set → chat view
 //
-// Layout: full-screen native-messaging feel — thin header at the
-// top, list OR thread fills the middle, composer (in chat view
-// only) pinned at the bottom and rides the keyboard up.
+// Touch handling matches the rest of the app: `transparent` Modal,
+// no SafeAreaView nested inside (it swallows touches on Android).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -33,19 +33,19 @@ import { Icon } from "@/design-system/Icon";
 import {
   useAIChatThread,
   useAIChatThreads,
-  useCreateAIChatThread,
-  useDeleteAIChatThread,
+  useFindOrCreateChatThread,
+  useLoans,
   useSendAIChatMessage,
 } from "@/hooks/useApi";
+import type { AIChatThread, Loan } from "@/lib/types";
 
 interface Props {
   visible: boolean;
   onClose: () => void;
   // Optional sub-title — caller can hint context, e.g. "From your dashboard".
   context?: string;
-  // When set, the sheet opens directly into this thread and skips the
-  // auto-pick-most-recent fallback. Used by the Messages tab where the
-  // tab itself IS the thread list.
+  // When set, the sheet opens directly into this thread (used from
+  // the loan detail page / pipeline). Not set → list view.
   initialThreadId?: string | null;
 }
 
@@ -58,16 +58,14 @@ const STARTER_PROMPTS = [
 
 export function AIChatSheet({ visible, onClose, context, initialThreadId }: Props) {
   const { t } = useTheme();
-  const threadsQ = useAIChatThreads();
-  const createThread = useCreateAIChatThread();
+  const { data: loans = [] } = useLoans();
+  const { data: threads = [], isLoading: threadsLoading } = useAIChatThreads();
+  const findOrCreate = useFindOrCreateChatThread();
   const sendMessage = useSendAIChatMessage();
-  const deleteThread = useDeleteAIChatThread();
 
   // When the caller controls the thread (initialThreadId set), we
   // jump straight into chat. When they don't, we land in the
-  // conversations LIST — never auto-pick a specific thread for the
-  // user (per operator request: "show the chat system in
-  // conversations view, not into a specific chat itself").
+  // conversations LIST.
   const [activeThreadId, setActiveThreadId] = useState<string | null>(initialThreadId ?? null);
   const [showList, setShowList] = useState<boolean>(!initialThreadId);
   const [input, setInput] = useState("");
@@ -76,6 +74,22 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
 
   const activeThreadQ = useAIChatThread(activeThreadId);
   const messages = activeThreadQ.data?.messages ?? [];
+
+  // Derived list — exactly one Account row + one row per loan.
+  // Threads in the DB that don't match (orphans, dupes pre-0018)
+  // are ignored by this derived view, so the user only sees the
+  // canonical set.
+  const accountThread = useMemo<AIChatThread | undefined>(
+    () => threads.find((th) => !th.loan_id),
+    [threads],
+  );
+  const loanThreadMap = useMemo(() => {
+    const map = new Map<string, AIChatThread>();
+    for (const th of threads) {
+      if (th.loan_id) map.set(th.loan_id, th);
+    }
+    return map;
+  }, [threads]);
 
   // Sync prop → state. When the parent provides a thread, jump
   // into it. When the parent clears it (or never provides one),
@@ -96,11 +110,21 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
   }, [messages.length, sendMessage.isPending]);
 
-  const startNew = () => {
-    setActiveThreadId(null);
-    setShowList(false);
-    setInput("");
+  const openThread = async (loan_id: string | null) => {
     setError(null);
+    const existing = loan_id == null ? accountThread : loanThreadMap.get(loan_id);
+    if (existing) {
+      setActiveThreadId(existing.id);
+      setShowList(false);
+      return;
+    }
+    try {
+      const created = await findOrCreate.mutateAsync({ loan_id });
+      setActiveThreadId(created.id);
+      setShowList(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't open the thread.");
+    }
   };
 
   const send = async (raw: string) => {
@@ -110,8 +134,10 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
     try {
       let threadId = activeThreadId;
       if (!threadId) {
-        const created = await createThread.mutateAsync({});
-        threadId = created.id;
+        // Fall back to the canonical Account thread — find-or-create
+        // (NOT plain create) so we never spawn a duplicate.
+        const t = await findOrCreate.mutateAsync({ loan_id: null });
+        threadId = t.id;
         setActiveThreadId(threadId);
       }
       await sendMessage.mutateAsync({ threadId, body: text });
@@ -121,40 +147,17 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
     }
   };
 
-  const promptDelete = (threadId: string) => {
-    Alert.alert(
-      "Delete conversation?",
-      "This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteThread.mutateAsync(threadId);
-              if (activeThreadId === threadId) setActiveThreadId(null);
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "Delete failed");
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const sortedThreads = threadsQ.data ?? [];
   const activeTitle = activeThreadQ.data?.title;
+  const activeSub = activeThreadQ.data?.loan_deal_id
+    ? `${activeThreadQ.data.loan_deal_id}${activeThreadQ.data.loan_address ? ` · ${activeThreadQ.data.loan_address}` : ""}`
+    : (context ?? "Cross-loan account context");
 
   return (
     <Modal
-      // Use `transparent` like every OTHER sheet in this app — Android
-      // routes touches through the existing window. With
-      // presentationStyle="fullScreen" (the previous attempt) Android
-      // creates a separate Activity-style window where Pressables
-      // visually render but never fire — the chat felt frozen. We get
-      // the same fullscreen LOOK by filling the inner View with t.bg
-      // and skipping the backdrop dim.
+      // `transparent` (matching the rest of the app's sheets) so
+      // touches route through the existing window on Android.
+      // presentationStyle="fullScreen" + nested SafeAreaView would
+      // re-create the previously-fixed swallow-touches bug.
       animationType="slide"
       transparent
       visible={visible}
@@ -164,23 +167,15 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
         style={{
           flex: 1,
           backgroundColor: t.bg,
-          // Manual top inset for the status bar (no SafeAreaView since
-          // there's no SafeAreaProvider at the app root and the inner
-          // SafeAreaView swallowed touches anyway).
           paddingTop: Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0,
         }}
       >
         <KeyboardAvoidingView
-          // Android needs explicit behavior — undefined leaves the
-          // keyboard floating over the composer. "height" pairs with
-          // adjustResize in the manifest. iOS gets "padding".
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={0}
         >
-          {/* Header bar — back/close on the left, AI label center,
-              threads-toggle on the right. Slim so the thread gets max
-              vertical space. */}
+          {/* Header bar */}
           <View
             style={{
               flexDirection: "row",
@@ -239,81 +234,76 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                 style={{ fontSize: 11, color: t.ink3, marginTop: 1 }}
               >
                 {showList
-                  ? `${sortedThreads.length} saved`
-                  : (context ?? "AI Intelligent Underwriter")}
+                  ? `1 account thread · ${loans.length} loan${loans.length === 1 ? "" : "s"}`
+                  : activeSub}
               </Text>
             </View>
           </View>
 
           {showList ? (
-            // ── Thread list view ─────────────────────────────────────
             <ScrollView
               style={{ flex: 1, backgroundColor: t.bg }}
               contentContainerStyle={{ padding: 14, gap: 8, paddingBottom: 20 }}
               showsVerticalScrollIndicator={false}
             >
-              <Pressable
-                onPress={startNew}
-                style={({ pressed }) => ({
-                  padding: 12,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: t.petrol,
-                  backgroundColor: pressed ? t.brandSoft : t.bg,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                })}
-              >
-                <Icon name="plus" size={14} color={t.petrol} />
-                <Text style={{ fontSize: 13, fontWeight: "700", color: t.petrol }}>
-                  New conversation
+              {/* Account / general thread row — always present */}
+              <ConversationRow
+                t={t}
+                title="Account questions"
+                subtitle={accountThread?.last_message_preview ?? "General questions about your portfolio."}
+                timestamp={accountThread?.last_message_at ?? null}
+                accent="petrol"
+                empty={!accountThread}
+                isActive={!!accountThread && activeThreadId === accountThread.id}
+                onPress={() => openThread(null)}
+              />
+
+              {loans.length > 0 ? (
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: "700",
+                    color: t.ink3,
+                    letterSpacing: 1.4,
+                    textTransform: "uppercase",
+                    marginTop: 14,
+                    marginBottom: 4,
+                  }}
+                >
+                  Loans
                 </Text>
-              </Pressable>
-              {threadsQ.isLoading ? (
-                <Text style={{ fontSize: 12, color: t.ink3, paddingVertical: 8 }}>Loading…</Text>
-              ) : sortedThreads.length === 0 ? (
-                <Text style={{ fontSize: 12, color: t.ink3, lineHeight: 18, paddingVertical: 8 }}>
-                  No conversations yet. Tap “New conversation” to start one.
-                </Text>
-              ) : (
-                sortedThreads.map((tr) => {
-                  const isActive = tr.id === activeThreadId;
-                  return (
-                    <Pressable
-                      key={tr.id}
-                      onPress={() => {
-                        setActiveThreadId(tr.id);
-                        setShowList(false);
-                      }}
-                      onLongPress={() => promptDelete(tr.id)}
-                      style={({ pressed }) => ({
-                        padding: 12,
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        borderColor: isActive ? t.petrol : t.line,
-                        backgroundColor: pressed ? t.surface2 : (isActive ? t.brandSoft : "transparent"),
-                      })}
-                    >
-                      <Text
-                        style={{ fontSize: 13, fontWeight: "700", color: isActive ? t.brand : t.ink }}
-                        numberOfLines={1}
-                      >
-                        {tr.title}
-                      </Text>
-                      {tr.last_message_preview ? (
-                        <Text
-                          style={{ fontSize: 11.5, color: t.ink3, marginTop: 4, lineHeight: 16 }}
-                          numberOfLines={2}
-                        >
-                          {tr.last_message_preview}
-                        </Text>
-                      ) : null}
-                    </Pressable>
-                  );
-                })
-              )}
+              ) : null}
+
+              {loans.map((loan: Loan) => {
+                const th = loanThreadMap.get(loan.id);
+                return (
+                  <ConversationRow
+                    key={loan.id}
+                    t={t}
+                    title={loan.deal_id}
+                    subtitleHeader={loan.address ?? ""}
+                    subtitle={th?.last_message_preview ?? "No conversation yet — tap to start."}
+                    timestamp={th?.last_message_at ?? null}
+                    accent="brand"
+                    empty={!th}
+                    isActive={!!th && activeThreadId === th.id}
+                    onPress={() => openThread(loan.id)}
+                  />
+                );
+              })}
+
+              {threadsLoading && threads.length === 0 ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12 }}>
+                  <ActivityIndicator size="small" color={t.ink3} />
+                  <Text style={{ fontSize: 12, color: t.ink3 }}>Loading conversations…</Text>
+                </View>
+              ) : null}
+
+              {error ? (
+                <View style={{ padding: 10, borderRadius: 9, backgroundColor: t.dangerBg, marginTop: 4 }}>
+                  <Text style={{ fontSize: 12, color: t.danger }}>{error}</Text>
+                </View>
+              ) : null}
             </ScrollView>
           ) : (
             <>
@@ -323,11 +313,6 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                 contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 14, paddingBottom: 14, gap: 10 }}
                 showsVerticalScrollIndicator={false}
                 style={{ flex: 1, backgroundColor: t.bg }}
-                // keyboardShouldPersistTaps so tapping a starter prompt or
-                // the send button while the keyboard is open fires the
-                // press without first being eaten by the dismiss-keyboard
-                // gesture. interactive lets a downward drag pull the
-                // keyboard back down.
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="interactive"
               >
@@ -394,9 +379,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                 ) : null}
               </ScrollView>
 
-              {/* Composer — pinned to the bottom edge of the
-                  KeyboardAvoidingView, so when the keyboard rises the
-                  composer rides up with it and the thread above shrinks. */}
+              {/* Composer */}
               <View
                 style={{
                   flexDirection: "row",
@@ -452,5 +435,88 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
         </KeyboardAvoidingView>
       </View>
     </Modal>
+  );
+}
+
+function ConversationRow({
+  t,
+  title,
+  subtitleHeader,
+  subtitle,
+  timestamp,
+  accent,
+  empty,
+  isActive,
+  onPress,
+}: {
+  t: ReturnType<typeof useTheme>["t"];
+  title: string;
+  subtitleHeader?: string;
+  subtitle: string;
+  timestamp: string | null;
+  accent: "petrol" | "brand";
+  empty: boolean;
+  isActive: boolean;
+  onPress: () => void;
+}) {
+  const accentColor = accent === "petrol" ? t.petrol : t.brand;
+  const accentBg = accent === "petrol" ? t.petrolSoft : t.brandSoft;
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        padding: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: isActive ? accentColor : t.line,
+        backgroundColor: pressed ? t.surface2 : (isActive ? accentBg : "transparent"),
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+      })}
+    >
+      <View
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: 10,
+          backgroundColor: accentBg,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Icon name="chat" size={16} color={accentColor} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <Text style={{ fontSize: 13.5, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }} numberOfLines={1}>
+            {title}
+          </Text>
+          {timestamp ? (
+            <Text style={{ fontSize: 10.5, color: t.ink4 }}>
+              {new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            </Text>
+          ) : null}
+        </View>
+        {subtitleHeader ? (
+          <Text style={{ fontSize: 11.5, color: t.ink3, marginTop: 1 }} numberOfLines={1}>
+            {subtitleHeader}
+          </Text>
+        ) : null}
+        <Text
+          style={{
+            fontSize: 12,
+            color: empty ? t.ink4 : t.ink2,
+            fontStyle: empty ? "italic" : "normal",
+            marginTop: 4,
+            lineHeight: 17,
+          }}
+          numberOfLines={2}
+        >
+          {subtitle}
+        </Text>
+      </View>
+      <Icon name="chevR" size={14} color={t.ink4} />
+    </Pressable>
   );
 }
