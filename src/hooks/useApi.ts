@@ -18,6 +18,9 @@ import type {
   CalendarEvent,
   DashboardReport,
   FredSeriesSummary,
+  PrequalRequest,
+  PrequalRequestCreate,
+  PrequalSellerOutcome,
 } from "@/lib/types";
 
 class NotFoundError extends Error {
@@ -355,4 +358,69 @@ export function useFreeCalc() {
 // for the consolidation rationale.
 export function useMyCredit() {
   return useCreditCurrent();
+}
+
+// ── Pre-qualification letters (borrower-only on mobile) ───────────────
+// Mirrors QCDashboard hooks. Mobile only ships the borrower flow:
+// submit, list, and report-back the seller's outcome. No admin queue,
+// no review modal — operators stay on desktop.
+
+export function useMyPrequalRequests() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["prequal-requests", "me", key],
+    queryFn: () => fetcher<PrequalRequest[]>("/me/prequal-requests"),
+    // Borrower opens the app expecting fresh status — pending may have
+    // flipped to approved while they were away.
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useSubmitPrequalRequest() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: PrequalRequestCreate) =>
+      fetcher<PrequalRequest>("/prequal-requests", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["prequal-requests"] });
+    },
+  });
+}
+
+export function useAcceptPrequalOffer() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, payload }: { requestId: string; payload: PrequalSellerOutcome }) =>
+      fetcher<PrequalRequest>(`/me/prequal-requests/${requestId}/accept-offer`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["prequal-requests"] });
+      // Acceptance spawns a Loan — refresh the borrower's loan list so
+      // it appears in the My Loans section under the prequal section.
+      qc.invalidateQueries({ queryKey: ["loans"] });
+    },
+  });
+}
+
+export function useDeclinePrequalOffer() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, payload }: { requestId: string; payload: PrequalSellerOutcome }) =>
+      fetcher<PrequalRequest>(`/me/prequal-requests/${requestId}/decline-offer`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["prequal-requests"] });
+    },
+  });
 }

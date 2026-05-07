@@ -12,8 +12,10 @@ import { Icon } from "@/design-system/Icon";
 import { Slider } from "@/design-system/Slider";
 import { QC_FMT } from "@/design-system/tokens";
 import { TopBar } from "@/components/TopBar";
-import { useCreditSummary, useFredSeries, useLoans, useMyCredit } from "@/hooks/useApi";
+import { useCreditSummary, useFredSeries, useLoans, useMyCredit, useMyPrequalRequests } from "@/hooks/useApi";
 import { CreditSummaryCard } from "@/components/CreditSummaryCard";
+import { PreQualRequestList } from "@/components/PreQualRequestList";
+import { PreQualRequestSheet } from "@/components/sheets/PreQualRequestSheet";
 import {
   bindingConstraintLabel,
   cappedReasonLabel,
@@ -576,78 +578,133 @@ function MyLoansList({
   onSwitchToFree: () => void;
 }) {
   const { t } = useTheme();
-  if (loans.length === 0) {
-    return (
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 80, gap: 14 }}>
-        <Card pad={20}>
-          <Text style={{ fontSize: 16, fontWeight: "800", color: t.ink, letterSpacing: -0.3 }}>
-            No started loans yet
-          </Text>
-          <Text style={{ fontSize: 13, color: t.ink3, marginTop: 6, lineHeight: 19 }}>
-            Once a loan is started, you'll see it here with a locked-terms view. Until then, use Free
-            Simulate to model what a deal could look like.
+  // Pre-qualification letter requests — borrower's own list across all
+  // their deals. Mirrors the desktop simulator's My Loans tab. The
+  // sheet opens on tap of "Request Pre-Qualification" and the list
+  // shows status / Download Letter / seller-outcome buttons inline.
+  const { data: prequalRequests = [], isLoading: prequalLoading } = useMyPrequalRequests();
+  const [prequalSheetOpen, setPrequalSheetOpen] = useState(false);
+
+  return (
+    <ScrollView
+      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 80, gap: 14 }}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* ── Pre-qualification letters ──────────────────────────────── */}
+      <View>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8, paddingHorizontal: 4 }}>
+          <Text style={{ fontSize: 11, fontWeight: "700", color: t.ink3, letterSpacing: 1.6, textTransform: "uppercase" }}>
+            Pre-qualification letters
           </Text>
           <Pressable
-            onPress={onSwitchToFree}
+            onPress={() => setPrequalSheetOpen(true)}
             style={({ pressed }) => ({
-              marginTop: 14,
-              paddingVertical: 11,
-              paddingHorizontal: 16,
-              borderRadius: 10,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingVertical: 6,
+              paddingHorizontal: 10,
+              borderRadius: 8,
               backgroundColor: t.brand,
-              alignSelf: "flex-start",
               opacity: pressed ? 0.85 : 1,
             })}
           >
-            <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
-              Open Free Simulate
+            <Icon name="plus" size={12} color="#fff" />
+            <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>
+              Request
             </Text>
           </Pressable>
-        </Card>
-      </ScrollView>
-    );
-  }
-  return (
-    <ScrollView
-      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 80, gap: 10 }}
-      showsVerticalScrollIndicator={false}
-    >
-      {loans.map((loan) => {
-        const arvNum = loan.arv != null ? Number(loan.arv) : 0;
-        const ltvPct = loan.ltv != null ? Math.round(Number(loan.ltv) * 100) : null;
-        return (
-          <Pressable
-            key={loan.id}
-            onPress={() => onPick(loan.id)}
-            style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
-          >
-            <Card pad={14}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <View
-                  style={{
-                    flex: 1,
-                  }}
+        </View>
+        <PreQualRequestList
+          requests={prequalRequests}
+          isLoading={prequalLoading}
+          emptyState={
+            <Text style={{ fontSize: 13, color: t.ink2, lineHeight: 19 }}>
+              No requests yet. Tap{" "}
+              <Text style={{ fontWeight: "800", color: t.ink }}>Request</Text> to
+              ask an underwriter for a pre-qualification letter on a property
+              you&apos;re bidding on.
+            </Text>
+          }
+        />
+      </View>
+
+      {/* ── Started loans ──────────────────────────────────────────── */}
+      <View>
+        <View style={{ paddingHorizontal: 4, marginBottom: 8 }}>
+          <Text style={{ fontSize: 11, fontWeight: "700", color: t.ink3, letterSpacing: 1.6, textTransform: "uppercase" }}>
+            My loans
+          </Text>
+        </View>
+        {loans.length === 0 ? (
+          <Card pad={20}>
+            <Text style={{ fontSize: 16, fontWeight: "800", color: t.ink, letterSpacing: -0.3 }}>
+              No started loans yet
+            </Text>
+            <Text style={{ fontSize: 13, color: t.ink3, marginTop: 6, lineHeight: 19 }}>
+              Once you confirm a seller accepted your offer on an approved
+              pre-qualification, the loan opens here. Until then, use Free
+              Simulate to model what a deal could look like.
+            </Text>
+            <Pressable
+              onPress={onSwitchToFree}
+              style={({ pressed }) => ({
+                marginTop: 14,
+                paddingVertical: 11,
+                paddingHorizontal: 16,
+                borderRadius: 10,
+                backgroundColor: t.brand,
+                alignSelf: "flex-start",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+                Open Free Simulate
+              </Text>
+            </Pressable>
+          </Card>
+        ) : (
+          <View style={{ gap: 10 }}>
+            {loans.map((loan) => {
+              const arvNum = loan.arv != null ? Number(loan.arv) : 0;
+              const ltvPct = loan.ltv != null ? Math.round(Number(loan.ltv) * 100) : null;
+              return (
+                <Pressable
+                  key={loan.id}
+                  onPress={() => onPick(loan.id)}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
                 >
-                  <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink, letterSpacing: -0.3 }}>
-                    {loan.address || "Unnamed loan"}
-                  </Text>
-                  <Text style={{ fontSize: 11, color: t.ink3, marginTop: 2 }}>
-                    {loan.type.replace(/_/g, " ")} · {loan.stage.replace(/_/g, " ")}
-                  </Text>
-                </View>
-                <View style={{ alignItems: "flex-end" }}>
-                  <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink, fontVariant: ["tabular-nums"] }}>
-                    {arvNum > 0 ? QC_FMT.short(arvNum) : "—"}
-                  </Text>
-                  <Text style={{ fontSize: 10.5, color: t.ink3, marginTop: 1 }}>
-                    {ltvPct != null ? `${ltvPct}% LTV` : "—"}
-                  </Text>
-                </View>
-              </View>
-            </Card>
-          </Pressable>
-        );
-      })}
+                  <Card pad={14}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink, letterSpacing: -0.3 }}>
+                          {loan.address || "Unnamed loan"}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: t.ink3, marginTop: 2 }}>
+                          {loan.type.replace(/_/g, " ")} · {loan.stage.replace(/_/g, " ")}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink, fontVariant: ["tabular-nums"] }}>
+                          {arvNum > 0 ? QC_FMT.short(arvNum) : "—"}
+                        </Text>
+                        <Text style={{ fontSize: 10.5, color: t.ink3, marginTop: 1 }}>
+                          {ltvPct != null ? `${ltvPct}% LTV` : "—"}
+                        </Text>
+                      </View>
+                    </View>
+                  </Card>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+      </View>
+
+      <PreQualRequestSheet
+        visible={prequalSheetOpen}
+        onClose={() => setPrequalSheetOpen(false)}
+      />
     </ScrollView>
   );
 }

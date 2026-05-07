@@ -208,6 +208,66 @@ export interface DashboardReport {
   by_type: TypeBreakdown[];
 }
 
+// ── Pre-qualification letter requests ─────────────────────────────────
+// Mirrors QCDashboard/src/lib/types.ts — keep in sync.
+//
+// Lifecycle (backend alembic 0011+):
+//   pending → approved → offer_accepted (Loan spawned at THIS step)
+//                        offer_declined (no loan ever created)
+//             rejected
+//
+// loan_id is NULL until offer_accepted — submit creates a standalone
+// request, not a Loan.
+export type PrequalStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "offer_accepted"
+  | "offer_declined";
+export type PrequalLoanType = "dscr" | "bridge";
+
+export interface PrequalRequest {
+  id: string;
+  loan_id: string | null;
+  requester_id: string;
+  target_property_address: string;
+  purchase_price: number;
+  requested_loan_amount: number;
+  approved_purchase_price: number | null;
+  approved_loan_amount: number | null;
+  approved_scenario: Record<string, unknown> | null;
+  loan_type: PrequalLoanType;
+  expected_closing_date: string | null;
+  borrower_notes: string | null;
+  admin_notes: string | null;
+  // LLC / entity name on the letter. Null = TBD (letter falls back to
+  // the borrower's individual legal name).
+  borrower_entity: string | null;
+  status: PrequalStatus;
+  // Q-XXXX, generated on first approval and frozen across re-approvals.
+  quote_number: string | null;
+  // Presigned 24h GET URL — minted fresh on every API read.
+  pdf_url: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PrequalRequestCreate {
+  target_property_address: string;
+  purchase_price: number;
+  requested_loan_amount: number;
+  loan_type: PrequalLoanType;
+  expected_closing_date?: string | null;
+  borrower_notes?: string | null;
+  borrower_entity?: string | null;
+}
+
+export interface PrequalSellerOutcome {
+  note?: string | null;
+}
+
 // FRED-driven market rates (mirrors qcdesktop)
 export interface FredObservation {
   date: string;
