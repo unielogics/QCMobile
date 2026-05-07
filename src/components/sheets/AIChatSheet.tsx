@@ -26,6 +26,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 import { useAIChat } from "@/hooks/useApi";
@@ -86,69 +87,90 @@ export function AIChatSheet({ visible, onClose, context }: Props) {
   };
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        // Android also needs an explicit behavior; with behavior=undefined
-        // the keyboard floated over the chat input + last 30-40% of the
-        // thread. "height" pairs with windowSoftInputMode=adjustResize so
-        // the sheet visibly shrinks when the keyboard appears.
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={0}
-      >
-        <View style={{ flex: 1, backgroundColor: "rgba(6,7,11,0.55)", justifyContent: "flex-end" }}>
-          <Pressable style={{ flex: 1 }} onPress={onClose} />
-          <View style={{
-            backgroundColor: t.bg,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            paddingHorizontal: 18,
-            paddingTop: 12,
-            paddingBottom: 16,
-            // Allow the sheet to shrink when the keyboard pushes content
-            // up. height: "88%" was a hard cap; flex: 1 lets the
-            // KeyboardAvoidingView's resize win.
-            flex: 1,
-            maxHeight: "88%",
-          }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: t.lineStrong, alignSelf: "center", marginBottom: 14 }} />
-
-            {/* Header */}
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 11, fontWeight: "700", color: t.petrol, letterSpacing: 1.4, textTransform: "uppercase" }}>
-                  AI Intelligent Underwriter
-                </Text>
-                <Text style={{ fontSize: 19, fontWeight: "700", color: t.ink, letterSpacing: -0.4, marginTop: 2 }}>
-                  How can I help?
-                </Text>
-                {context ? (
-                  <Text style={{ fontSize: 11.5, color: t.ink3, marginTop: 2 }}>{context}</Text>
-                ) : null}
-              </View>
-              <Pressable
-                onPress={onClose}
-                accessibilityLabel="Close"
-                style={{ width: 32, height: 32, borderRadius: 999, backgroundColor: t.chip, alignItems: "center", justifyContent: "center" }}
-              >
-                <Icon name="x" size={16} color={t.ink2} />
-              </Pressable>
-            </View>
-
-            {/* Thread */}
-            <ScrollView
-              ref={scrollRef}
-              contentContainerStyle={{ paddingTop: 12, paddingBottom: 12, gap: 10 }}
-              showsVerticalScrollIndicator={false}
-              style={{ flex: 1 }}
-              // keyboardShouldPersistTaps so tapping a starter prompt or
-              // the send button while the keyboard is open fires the
-              // press without first being eaten by the dismiss-keyboard
-              // gesture. interactive lets a downward drag pull the
-              // keyboard back down.
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="interactive"
+    <Modal
+      // Full-screen presentation rather than a transparent overlay — we
+      // want a native-messaging-app feel: header at the top, thread in
+      // the middle, composer pinned at the bottom, keyboard pushing the
+      // composer up and shrinking the thread above it.
+      animationType="slide"
+      visible={visible}
+      onRequestClose={onClose}
+      presentationStyle="fullScreen"
+    >
+      <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top", "bottom"]}>
+        <KeyboardAvoidingView
+          // Android needs explicit behavior — undefined leaves the
+          // keyboard floating over the composer. "height" pairs with
+          // adjustResize in the manifest. iOS gets "padding".
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
+        >
+          {/* Header bar — back/close on the left, AI label center,
+              spacer right. Slim so the thread gets max vertical space. */}
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              paddingHorizontal: 12,
+              paddingVertical: 10,
+              borderBottomWidth: 1,
+              borderBottomColor: t.line,
+              backgroundColor: t.bg,
+            }}
+          >
+            <Pressable
+              onPress={onClose}
+              accessibilityLabel="Close"
+              hitSlop={10}
+              style={({ pressed }) => ({
+                width: 36, height: 36, borderRadius: 999,
+                backgroundColor: pressed ? t.chip : "transparent",
+                alignItems: "center", justifyContent: "center",
+              })}
             >
+              <Icon name="chevL" size={18} color={t.ink2} />
+            </Pressable>
+            <View
+              style={{
+                width: 34, height: 34, borderRadius: 10,
+                backgroundColor: t.petrolSoft,
+                alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <Icon name="chat" size={16} color={t.petrol} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text
+                numberOfLines={1}
+                style={{ fontSize: 14, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }}
+              >
+                AI Intelligent Underwriter
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={{ fontSize: 11, color: t.ink3, marginTop: 1 }}
+              >
+                {context ?? "Cross-loan account context"}
+              </Text>
+            </View>
+          </View>
+
+          {/* Thread — fills all the space between header and composer */}
+          <ScrollView
+            ref={scrollRef}
+            contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 14, paddingBottom: 14, gap: 10 }}
+            showsVerticalScrollIndicator={false}
+            style={{ flex: 1, backgroundColor: t.bg }}
+            // keyboardShouldPersistTaps so tapping a starter prompt or
+            // the send button while the keyboard is open fires the
+            // press without first being eaten by the dismiss-keyboard
+            // gesture. interactive lets a downward drag pull the
+            // keyboard back down.
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+          >
               {history.length === 0 ? (
                 <View style={{ paddingTop: 8 }}>
                   <Text style={{ fontSize: 12, color: t.ink3, lineHeight: 18, marginBottom: 14 }}>
@@ -210,47 +232,63 @@ export function AIChatSheet({ visible, onClose, context }: Props) {
                   <Text style={{ fontSize: 12, color: t.danger }}>{error}</Text>
                 </View>
               ) : null}
-            </ScrollView>
+          </ScrollView>
 
-            {/* Input */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: t.line }}>
-              <TextInput
-                value={input}
-                onChangeText={setInput}
-                placeholder="Type your question…"
-                placeholderTextColor={t.ink4}
-                editable={!chat.isPending}
-                onSubmitEditing={() => send(input)}
-                returnKeyType="send"
-                style={{
-                  flex: 1,
-                  paddingVertical: 11,
-                  paddingHorizontal: 14,
-                  borderRadius: 12,
-                  backgroundColor: t.surface2,
-                  borderWidth: 1,
-                  borderColor: t.line,
-                  color: t.ink,
-                  fontSize: 14,
-                }}
-              />
-              <Pressable
-                onPress={() => send(input)}
-                disabled={!input.trim() || chat.isPending}
-                accessibilityLabel="Send"
-                style={({ pressed }) => ({
-                  width: 44, height: 44, borderRadius: 12,
-                  backgroundColor: input.trim() && !chat.isPending ? t.petrol : t.chip,
-                  alignItems: "center", justifyContent: "center",
-                  opacity: pressed ? 0.85 : 1,
-                })}
-              >
-                <Icon name="arrowR" size={18} color={input.trim() && !chat.isPending ? "#fff" : t.ink4} />
-              </Pressable>
-            </View>
+          {/* Composer — pinned to the bottom edge of the
+              KeyboardAvoidingView, so when the keyboard rises the
+              composer rides up with it and the thread above shrinks. */}
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "flex-end",
+              gap: 8,
+              paddingHorizontal: 12,
+              paddingTop: 8,
+              paddingBottom: 8,
+              borderTopWidth: 1,
+              borderTopColor: t.line,
+              backgroundColor: t.bg,
+            }}
+          >
+            <TextInput
+              value={input}
+              onChangeText={setInput}
+              placeholder="Message…"
+              placeholderTextColor={t.ink4}
+              editable={!chat.isPending}
+              onSubmitEditing={() => send(input)}
+              returnKeyType="send"
+              multiline
+              style={{
+                flex: 1,
+                minHeight: 40,
+                maxHeight: 120,
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                borderRadius: 20,
+                backgroundColor: t.surface2,
+                borderWidth: 1,
+                borderColor: t.line,
+                color: t.ink,
+                fontSize: 14,
+              }}
+            />
+            <Pressable
+              onPress={() => send(input)}
+              disabled={!input.trim() || chat.isPending}
+              accessibilityLabel="Send"
+              style={({ pressed }) => ({
+                width: 40, height: 40, borderRadius: 20,
+                backgroundColor: input.trim() && !chat.isPending ? t.petrol : t.chip,
+                alignItems: "center", justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Icon name="arrowR" size={18} color={input.trim() && !chat.isPending ? "#fff" : t.ink4} />
+            </Pressable>
           </View>
-        </View>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     </Modal>
   );
 }
