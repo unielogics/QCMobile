@@ -22,6 +22,7 @@ import {
 import { Icon } from "@/design-system/Icon";
 import { QC_FMT } from "@/design-system/tokens";
 import { FredChart } from "@/components/FredChart";
+import { RateDetailModal } from "@/components/RateDetailModal";
 import {
   useCalendar,
   useCurrentUser,
@@ -124,39 +125,46 @@ export default function Home() {
           />
         </View>
 
-        {/* KPI strip */}
-        <SectionLabel>This year at a glance</SectionLabel>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -4, marginBottom: 6 }}>
-          <KpiTile
-            label="Funded YTD"
-            value={report ? QC_FMT.short(report.funded_ytd) : "—"}
-            delta={report?.funded_ytd_delta ?? null}
-            sub="vs. prior year"
-            accent={t.profit}
-            icon="dollar"
-          />
-          <KpiTile
-            label="Pipeline"
-            value={report ? QC_FMT.short(report.pipeline_value) : "—"}
-            sub={report ? `${report.pipeline_count} loans` : undefined}
-            icon="layers"
-          />
-          <KpiTile
-            label="Avg close"
-            value={report?.avg_close_days ? `${report.avg_close_days}d` : "—"}
-            delta={report?.avg_close_delta ?? null}
-            deltaSuffix="d"
-            sub="app to wire"
-            icon="audit"
-          />
-          <KpiTile
-            label="Pull-through"
-            value={report?.pull_through != null ? `${(report.pull_through * 100).toFixed(0)}%` : "—"}
-            delta={report?.pull_through_delta != null ? Math.round(report.pull_through_delta * 100) : null}
-            sub="last 90d"
-            icon="trend"
-          />
-        </View>
+        {/* KPI strip — operator-only. CLIENTs don't have funded-YTD,
+            avg-close, or pull-through targets to track; the borrower
+            view is built around Pro Terms + their pipeline + portfolio
+            health + market rates instead. */}
+        {!isClient ? (
+          <>
+            <SectionLabel>This year at a glance</SectionLabel>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -4, marginBottom: 6 }}>
+              <KpiTile
+                label="Funded YTD"
+                value={report ? QC_FMT.short(report.funded_ytd) : "—"}
+                delta={report?.funded_ytd_delta ?? null}
+                sub="vs. prior year"
+                accent={t.profit}
+                icon="dollar"
+              />
+              <KpiTile
+                label="Pipeline"
+                value={report ? QC_FMT.short(report.pipeline_value) : "—"}
+                sub={report ? `${report.pipeline_count} loans` : undefined}
+                icon="layers"
+              />
+              <KpiTile
+                label="Avg close"
+                value={report?.avg_close_days ? `${report.avg_close_days}d` : "—"}
+                delta={report?.avg_close_delta ?? null}
+                deltaSuffix="d"
+                sub="app to wire"
+                icon="audit"
+              />
+              <KpiTile
+                label="Pull-through"
+                value={report?.pull_through != null ? `${(report.pull_through * 100).toFixed(0)}%` : "—"}
+                delta={report?.pull_through_delta != null ? Math.round(report.pull_through_delta * 100) : null}
+                sub="last 90d"
+                icon="trend"
+              />
+            </View>
+          </>
+        ) : null}
 
         {/* Pro Terms — CLIENT only, mirrors desktop ProTermsCard */}
         {isClient ? (
@@ -176,15 +184,22 @@ export default function Home() {
           />
         ) : null}
 
-        {/* Market Rates — FRED */}
-        <SectionLabel
-          action={
-            <Text style={{ color: t.ink3, fontSize: 11, fontWeight: "600" }}>FRED · 7d</Text>
-          }
-        >
-          Today's market rates
-        </SectionLabel>
-        <FredRatesPanel />
+        {/* Market Rates — operators see them right under Pro Terms. For
+            CLIENTs, market rates come AFTER their loans + portfolio
+            health (rendered further down) so the focus is on their own
+            deals first, market context second. */}
+        {!isClient ? (
+          <>
+            <SectionLabel
+              action={
+                <Text style={{ color: t.ink3, fontSize: 11, fontWeight: "600" }}>FRED · 7d</Text>
+              }
+            >
+              Today's market rates
+            </SectionLabel>
+            <FredRatesPanel />
+          </>
+        ) : null}
 
         {/* Pipeline — borrower style top-3 cards */}
         <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingHorizontal: 4, marginBottom: 10, marginTop: 8 }}>
@@ -251,6 +266,21 @@ export default function Home() {
         {/* Portfolio Health — derived from real loans */}
         <SectionLabel>Portfolio Health</SectionLabel>
         <PortfolioHealth loans={loans} />
+
+        {/* Market Rates render AFTER portfolio health for CLIENTs — see
+            comment above where the operator branch lives. */}
+        {isClient ? (
+          <View style={{ marginTop: 8 }}>
+            <SectionLabel
+              action={
+                <Text style={{ color: t.ink3, fontSize: 11, fontWeight: "600" }}>FRED · 7d</Text>
+              }
+            >
+              Today's market rates
+            </SectionLabel>
+            <FredRatesPanel />
+          </View>
+        ) : null}
       </ScrollView>
 
       <Fab onPress={() => setShowNewLoan(true)} />
@@ -356,6 +386,15 @@ function FredRatesPanel() {
   const seriesById = new Map(series.map((s) => [s.series_id, s] as const));
   const hasAnyData = series.some((s) => s.current_value != null);
 
+  // Tap a rate card → open fullscreen interactive detail modal. Tracking
+  // the open card here (rather than per-RateCard) lets a single Modal
+  // mount serve all cards.
+  const [openCard, setOpenCard] = useState<{
+    series_id: string;
+    label: string;
+    sub: string;
+  } | null>(null);
+
   if (fredNotDeployed) {
     return (
       <Card pad={14} style={{ marginBottom: 20 }}>
@@ -384,22 +423,37 @@ function FredRatesPanel() {
   }
 
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -4, marginBottom: 14 }}>
-      {PRODUCT_CARDS.map((card) => {
-        const s = seriesById.get(card.series_id);
-        return (
-          <View key={card.id} style={{ width: "50%", padding: 4 }}>
-            <RateCard card={card} series={s} />
-          </View>
-        );
-      })}
-    </View>
+    <>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -4, marginBottom: 14 }}>
+        {PRODUCT_CARDS.map((card) => {
+          const s = seriesById.get(card.series_id);
+          return (
+            <View key={card.id} style={{ width: "50%", padding: 4 }}>
+              <RateCard
+                card={card}
+                series={s}
+                onPress={() =>
+                  setOpenCard({ series_id: card.series_id, label: card.label, sub: card.sub })
+                }
+              />
+            </View>
+          );
+        })}
+      </View>
+      <RateDetailModal
+        seriesId={openCard?.series_id ?? null}
+        title={openCard?.label}
+        productSub={openCard?.sub}
+        onClose={() => setOpenCard(null)}
+      />
+    </>
   );
 }
 
 function RateCard({
   card,
   series,
+  onPress,
 }: {
   card: { id: string; label: string; term: string; sub: string; series_id: string };
   series:
@@ -411,6 +465,7 @@ function RateCard({
         history_7d: { date: string; value: number | null }[];
       }
     | undefined;
+  onPress?: () => void;
 }) {
   const { t } = useTheme();
   const hasData = !!series && series.current_value != null;
@@ -424,12 +479,17 @@ function RateCard({
   const chartPoints = (series?.history_7d ?? []).filter((p) => p.value != null);
 
   return (
-    <Card pad={12}>
-      <View>
-        <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: "700", color: t.ink }}>
-          {card.label} <Text style={{ color: t.ink3, fontWeight: "600" }}>· {card.term}</Text>
-        </Text>
-        <Text style={{ fontSize: 10, color: t.ink3, marginTop: 2 }}>{card.sub}</Text>
+    <Card pad={12} onPress={onPress}>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 6 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: "700", color: t.ink }}>
+            {card.label} <Text style={{ color: t.ink3, fontWeight: "600" }}>· {card.term}</Text>
+          </Text>
+          <Text style={{ fontSize: 10, color: t.ink3, marginTop: 2 }}>{card.sub}</Text>
+        </View>
+        {/* Subtle "expand" affordance so the borrower knows the card opens
+            a detail view. The chart itself stays scrubbable via PanResponder. */}
+        <Icon name="external" size={11} color={t.ink4} />
       </View>
       {chartPoints.length >= 2 ? (
         <View style={{ height: 36, marginTop: 4 }}>

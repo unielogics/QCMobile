@@ -21,6 +21,7 @@ import { Slider } from "@/design-system/Slider";
 import { QC_FMT } from "@/design-system/tokens";
 import { useCreditSummary, useFredSeries, useLoans, useMyCredit } from "@/hooks/useApi";
 import { CreditSummaryCard } from "@/components/CreditSummaryCard";
+import { AmortizationSchedule, HudDonutChart } from "@/components/SimulatorCharts";
 import {
   computeEligibility,
   computeSimulator,
@@ -361,6 +362,32 @@ export function LoanSimulator({ loan }: { loan: Loan }) {
             </Text>
           </View>
         </Card>
+      ) : null}
+
+      {/* Closing-cost donut + amortization line chart. Always shown for
+          started loans — the borrower wants to see the shape of their
+          loan, not just the rate. */}
+      {sim ? (
+        <HudDonutChart
+          origination={sim.origination}
+          pointsCost={sim.pointsCost}
+          appraisal={sim.appraisal}
+          fixedFees={sim.fixedFees}
+          titleIns={sim.titleIns}
+          recording={sim.recording}
+          total={sim.totalToClose}
+        />
+      ) : null}
+
+      {sim && sim.loanAmount > 0 && sim.rate > 0 ? (
+        <AmortizationSchedule
+          loanAmount={sim.loanAmount}
+          annualRate={sim.rate}
+          // DSCR amortizes 30y; F&F / GU / Bridge are interest-only with
+          // a balloon at maturity (termMonths=0 triggers the IO branch).
+          termMonths={productKey === "dscr" ? 360 : 0}
+          monthlyPI={sim.monthlyPI}
+        />
       ) : null}
     </ScrollView>
   );

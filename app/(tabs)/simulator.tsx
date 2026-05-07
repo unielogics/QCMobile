@@ -29,6 +29,7 @@ import {
 import { isProductKeyEnabled } from "@/lib/products";
 import { RangeGauge } from "@/components/RangeGauge";
 import { LoanSimulator } from "@/components/LoanSimulator";
+import { AmortizationSchedule, HudDonutChart } from "@/components/SimulatorCharts";
 import type { Loan } from "@/lib/types";
 
 const ALL_PRODUCTS: { id: SimulatorInputs["productKey"]; label: string; sub: string }[] = [
@@ -561,6 +562,31 @@ export default function Simulator() {
             </>
             ) : null}
           </Card>
+        ) : null}
+
+        {/* Closing-cost donut + amortization chart — also behind hudOpen so
+            we don't push the calculator off-screen on first paint. */}
+        {sim && hudOpen ? (
+          <HudDonutChart
+            origination={sim.origination}
+            pointsCost={sim.pointsCost}
+            appraisal={sim.appraisal}
+            fixedFees={sim.fixedFees}
+            titleIns={sim.titleIns}
+            recording={sim.recording}
+            total={sim.totalToClose}
+          />
+        ) : null}
+
+        {sim && hudOpen && sim.loanAmount > 0 && sim.rate > 0 ? (
+          <AmortizationSchedule
+            loanAmount={sim.loanAmount}
+            annualRate={sim.rate}
+            // DSCR amortizes 30y; F&F / GU / Bridge are interest-only with
+            // a balloon at maturity (termMonths=0 triggers the IO branch).
+            termMonths={productKey === "dscr" ? 360 : 0}
+            monthlyPI={sim.monthlyPI}
+          />
         ) : null}
       </ScrollView>
       )}
