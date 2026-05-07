@@ -41,6 +41,10 @@ interface Props {
   onClose: () => void;
   // Optional sub-title — caller can hint context, e.g. "From your dashboard".
   context?: string;
+  // When set, the sheet opens directly into this thread and skips the
+  // auto-pick-most-recent fallback. Used by the Messages tab where the
+  // tab itself IS the thread list.
+  initialThreadId?: string | null;
 }
 
 const STARTER_PROMPTS = [
@@ -50,14 +54,14 @@ const STARTER_PROMPTS = [
   "Show me my current pipeline",
 ];
 
-export function AIChatSheet({ visible, onClose, context }: Props) {
+export function AIChatSheet({ visible, onClose, context, initialThreadId }: Props) {
   const { t } = useTheme();
   const threadsQ = useAIChatThreads();
   const createThread = useCreateAIChatThread();
   const sendMessage = useSendAIChatMessage();
   const deleteThread = useDeleteAIChatThread();
 
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(initialThreadId ?? null);
   const [showList, setShowList] = useState(false);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -66,14 +70,24 @@ export function AIChatSheet({ visible, onClose, context }: Props) {
   const activeThreadQ = useAIChatThread(activeThreadId);
   const messages = activeThreadQ.data?.messages ?? [];
 
-  // On first open of the sheet, snap onto the most recent thread
-  // (or stay in starter-prompts mode when there are none).
+  // Sync prop → state when caller changes the target thread (e.g.
+  // user picked a different thread in the Messages tab without
+  // closing the sheet between them).
+  useEffect(() => {
+    if (initialThreadId !== undefined && initialThreadId !== null) {
+      setActiveThreadId(initialThreadId);
+    }
+  }, [initialThreadId]);
+
+  // On first open of the sheet (no caller-supplied thread), snap
+  // onto the most recent thread.
   useEffect(() => {
     if (!visible) return;
+    if (initialThreadId) return; // caller controls
     if (activeThreadId == null && threadsQ.data && threadsQ.data.length > 0) {
       setActiveThreadId(threadsQ.data[0].id);
     }
-  }, [visible, threadsQ.data, activeThreadId]);
+  }, [visible, threadsQ.data, activeThreadId, initialThreadId]);
 
   // Auto-scroll the thread to the bottom when a new message lands or
   // the AI starts thinking.

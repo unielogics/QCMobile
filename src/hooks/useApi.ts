@@ -19,6 +19,7 @@ import type {
   AIChatThreadDetail,
   AIChatSendResponse,
   ClientLivingProfile,
+  RequiredDocument,
   CalendarEvent,
   DashboardReport,
   FredSeriesSummary,
@@ -228,14 +229,24 @@ export function useUploadDocument() {
       loan_id: string;
       file: { uri: string; name: string; mimeType: string };
       category?: string;
+      // alembic 0017 — pick exactly one of these to link the upload
+      // to the loan's checklist for AI vision scanning.
+      fulfill_document_id?: string | null;
+      checklist_key?: string | null;
+      is_other?: boolean;
+      // Optional name override (so checklist labels stick).
+      name?: string;
     }) => {
       const init = await fetcher<DocumentUploadInitResponse>("/documents/upload-init", {
         method: "POST",
         body: JSON.stringify({
           loan_id: vars.loan_id,
-          name: vars.file.name,
+          name: vars.name ?? vars.file.name,
           content_type: vars.file.mimeType,
           category: vars.category,
+          fulfill_document_id: vars.fulfill_document_id ?? null,
+          checklist_key: vars.checklist_key ?? null,
+          is_other: !!vars.is_other,
         }),
       });
       if (init.upload_url) {
@@ -252,6 +263,11 @@ export function useUploadDocument() {
           },
         });
         if (!put.ok) throw new Error(`S3 upload failed: ${put.status} ${put.statusText}`);
+        // Flip the doc to RECEIVED + queue the vision scan.
+        await fetcher(`/documents/upload-complete`, {
+          method: "POST",
+          body: JSON.stringify({ document_id: init.document_id }),
+        });
       }
       return init;
     },
@@ -259,7 +275,36 @@ export function useUploadDocument() {
       qc.invalidateQueries({ queryKey: ["documents", vars.loan_id] });
       qc.invalidateQueries({ queryKey: ["documents", undefined] });
       qc.invalidateQueries({ queryKey: ["documents", null] });
+      qc.invalidateQueries({ queryKey: ["required-documents", vars.loan_id] });
     },
+  });
+}
+
+// /loans/{id}/required-documents — drives the upload sheet's
+// checklist picker.
+export function useRequiredDocuments(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["required-documents", loanId, key],
+    queryFn: () => fetcher<RequiredDocument[]>(`/loans/${loanId}/required-documents`),
+    enabled: !!loanId,
+  });
+}
+
+// Find-or-create the (user, loan_id) AI chat thread. Lazy-spawn on
+// first tap from the Messages tab.
+export function useFindOrCreateChatThread() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  const key = useCacheKey();
+  return useMutation({
+    mutationFn: ({ loan_id }: { loan_id: string | null }) =>
+      fetcher<AIChatThread>("/ai/chat/threads/find-or-create", {
+        method: "POST",
+        body: JSON.stringify({ loan_id }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["aiChatThreads", key] }),
   });
 }
 

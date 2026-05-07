@@ -18,6 +18,7 @@ import { TopBar } from "@/components/TopBar";
 import { Fab } from "@/components/Fab";
 import { UploadKindSheet, type UploadKind } from "@/components/sheets/UploadKindSheet";
 import { UploadActionSheet, type PickedFile } from "@/components/sheets/UploadActionSheet";
+import { UploadChecklistPickerSheet, type ChecklistPick } from "@/components/sheets/UploadChecklistPickerSheet";
 import { PropertyPickerSheet } from "@/components/sheets/PropertyPickerSheet";
 import { useDocuments, useLoans, useUploadDocument } from "@/hooks/useApi";
 import type { Document, Loan } from "@/lib/types";
@@ -51,8 +52,10 @@ export default function Vault() {
   const [showKind, setShowKind] = useState(false);
   const [showAction, setShowAction] = useState(false);
   const [showProperty, setShowProperty] = useState(false);
+  const [showChecklist, setShowChecklist] = useState(false);
   const [pendingKind, setPendingKind] = useState<UploadKind | null>(null);
   const [pendingFile, setPendingFile] = useState<PickedFile | null>(null);
+  const [pendingLoanId, setPendingLoanId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Filter docs by active tab (kept stable so we can derive both stats
@@ -96,24 +99,35 @@ export default function Vault() {
     setShowProperty(true);
   };
 
-  const onPickProperty = async (loan: Loan) => {
+  const onPickProperty = (loan: Loan) => {
     setShowProperty(false);
     if (!pendingFile) return;
+    setPendingLoanId(loan.id);
+    setShowChecklist(true);
+  };
+
+  const onPickChecklist = async (pick: ChecklistPick) => {
+    setShowChecklist(false);
+    if (!pendingFile || !pendingLoanId) return;
     try {
       await upload.mutateAsync({
-        loan_id: loan.id,
+        loan_id: pendingLoanId,
         file: pendingFile,
         category: pendingKind ?? undefined,
+        fulfill_document_id: pick.fulfill_document_id,
+        checklist_key: pick.checklist_key,
+        is_other: pick.is_other,
+        name: pick.label,
       });
-      // Snap the active tab to the kind we just uploaded so the user
-      // sees their new doc immediately instead of looking at the wrong list.
       if (pendingKind) setTab(pendingKind);
       setPendingFile(null);
       setPendingKind(null);
+      setPendingLoanId(null);
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : "Upload failed");
       setPendingFile(null);
       setPendingKind(null);
+      setPendingLoanId(null);
     }
   };
 
@@ -121,6 +135,14 @@ export default function Vault() {
     setShowProperty(false);
     setPendingFile(null);
     setPendingKind(null);
+    setPendingLoanId(null);
+  };
+
+  const onCancelChecklist = () => {
+    setShowChecklist(false);
+    setPendingFile(null);
+    setPendingKind(null);
+    setPendingLoanId(null);
   };
 
   const onCancelAction = () => {
@@ -301,6 +323,13 @@ export default function Vault() {
         fileName={pendingFile?.name}
         onClose={onCancelProperty}
         onPick={onPickProperty}
+      />
+
+      <UploadChecklistPickerSheet
+        visible={showChecklist}
+        loanId={pendingLoanId}
+        onClose={onCancelChecklist}
+        onPick={onPickChecklist}
       />
     </SafeAreaView>
   );

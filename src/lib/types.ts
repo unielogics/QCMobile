@@ -180,6 +180,27 @@ export interface AIChatThread {
   last_message_at: string | null;
   created_at: string;
   updated_at: string;
+  // alembic 0017 — loan-scoped thread when set; account-wide when null.
+  loan_id?: string | null;
+  loan_deal_id?: string | null;
+  loan_address?: string | null;
+}
+
+// /loans/{id}/required-documents (alembic 0017). Drives the
+// vault upload sheet's checklist picker. Final row is always the
+// "Other / not in checklist" sentinel (is_other=true,
+// checklist_key=null).
+export interface RequiredDocument {
+  checklist_key: string | null;
+  label: string;
+  required: boolean;
+  auto_request: boolean;
+  is_other: boolean;
+  current_document_id: string | null;
+  current_status: "pending" | "requested" | "received" | "verified" | "flagged" | null;
+  received_on: string | null;
+  verified_at: string | null;
+  days_since_requested: number | null;
 }
 export interface AIChatMessage {
   id: string;
