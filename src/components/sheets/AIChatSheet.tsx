@@ -87,9 +87,17 @@ export function AIChatSheet({ visible, onClose, context }: Props) {
 
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: "rgba(6,7,11,0.55)", justifyContent: "flex-end" }}>
-        <Pressable style={{ flex: 1 }} onPress={onClose} />
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView
+        // Android also needs an explicit behavior; with behavior=undefined
+        // the keyboard floated over the chat input + last 30-40% of the
+        // thread. "height" pairs with windowSoftInputMode=adjustResize so
+        // the sheet visibly shrinks when the keyboard appears.
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
+      >
+        <View style={{ flex: 1, backgroundColor: "rgba(6,7,11,0.55)", justifyContent: "flex-end" }}>
+          <Pressable style={{ flex: 1 }} onPress={onClose} />
           <View style={{
             backgroundColor: t.bg,
             borderTopLeftRadius: 28,
@@ -97,7 +105,11 @@ export function AIChatSheet({ visible, onClose, context }: Props) {
             paddingHorizontal: 18,
             paddingTop: 12,
             paddingBottom: 16,
-            height: "88%",
+            // Allow the sheet to shrink when the keyboard pushes content
+            // up. height: "88%" was a hard cap; flex: 1 lets the
+            // KeyboardAvoidingView's resize win.
+            flex: 1,
+            maxHeight: "88%",
           }}>
             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: t.lineStrong, alignSelf: "center", marginBottom: 14 }} />
 
@@ -129,6 +141,13 @@ export function AIChatSheet({ visible, onClose, context }: Props) {
               contentContainerStyle={{ paddingTop: 12, paddingBottom: 12, gap: 10 }}
               showsVerticalScrollIndicator={false}
               style={{ flex: 1 }}
+              // keyboardShouldPersistTaps so tapping a starter prompt or
+              // the send button while the keyboard is open fires the
+              // press without first being eaten by the dismiss-keyboard
+              // gesture. interactive lets a downward drag pull the
+              // keyboard back down.
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
             >
               {history.length === 0 ? (
                 <View style={{ paddingTop: 8 }}>
@@ -230,8 +249,8 @@ export function AIChatSheet({ visible, onClose, context }: Props) {
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

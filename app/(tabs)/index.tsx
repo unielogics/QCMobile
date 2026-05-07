@@ -328,7 +328,7 @@ export default function Home() {
         ) : null}
       </ScrollView>
 
-      <Fab onPress={() => setShowAIChat(true)} icon="spark" />
+      <Fab onPress={() => setShowAIChat(true)} icon="chat" />
       <AIChatSheet
         visible={showAIChat}
         onClose={() => setShowAIChat(false)}

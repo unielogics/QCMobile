@@ -5,7 +5,7 @@ import { Icon } from "@/design-system/Icon";
 export function Fab({ onPress, icon = "plus" }: { onPress?: () => void; icon?: string }) {
   const { t, isDark } = useTheme();
   return (
-    <View pointerEvents="box-none" style={{ position: "absolute", right: 16, bottom: 88, zIndex: 40 }}>
+    <View pointerEvents="box-none" style={{ position: "absolute", right: 16, bottom: 44, zIndex: 40 }}>
       <Pressable
         onPress={onPress}
         accessibilityLabel="Quick action"

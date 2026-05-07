@@ -260,7 +260,7 @@ export default function CalendarScreen() {
       {/* AI Intelligent Underwriter — same FAB pattern as the
           dashboard. The borrower can ask "what's coming up next
           week?" or "anything overdue?" without leaving the calendar. */}
-      <Fab onPress={() => setShowAIChat(true)} icon="spark" />
+      <Fab onPress={() => setShowAIChat(true)} icon="chat" />
       <AIChatSheet
         visible={showAIChat}
         onClose={() => setShowAIChat(false)}
