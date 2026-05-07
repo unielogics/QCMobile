@@ -21,11 +21,11 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   Text,
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 import {
@@ -143,7 +143,18 @@ export function AIChatSheet({ visible, onClose, context }: Props) {
       onRequestClose={onClose}
       presentationStyle="fullScreen"
     >
-      <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top", "bottom"]}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: t.bg,
+          // Manual top inset for the status bar — using SafeAreaView from
+          // react-native-safe-area-context inside a Modal swallowed all
+          // touches on Android (SafeAreaProvider context doesn't extend
+          // into Modal children). Plain View + StatusBar.currentHeight
+          // gives us the same layout without breaking hit-testing.
+          paddingTop: Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0,
+        }}
+      >
         <KeyboardAvoidingView
           // Android needs explicit behavior — undefined leaves the
           // keyboard floating over the composer. "height" pairs with
@@ -423,7 +434,7 @@ export function AIChatSheet({ visible, onClose, context }: Props) {
             </>
           )}
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }
