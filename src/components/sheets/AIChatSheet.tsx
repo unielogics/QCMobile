@@ -1,16 +1,18 @@
-// AI Intelligent Underwriter chat sheet (mobile, account-wide).
+// AI Intelligent Underwriter chat sheet (mobile).
 //
-// Opened from the FAB on Dashboard / Calendar tabs. Per-loan chats
-// live inside each loan's detail screen and are unaffected.
+// Default landing surface = the conversations LIST. Operators
+// don't auto-jump into a specific chat unless the caller passes
+// `initialThreadId` (from the Messages tab tap, the loan detail
+// page, or the pipeline). The Dashboard / Calendar FAB opens to
+// the list so users can pick which conversation to enter.
 //
-// Phase 8: every conversation persists to the DB. The "threads" icon
-// in the header swaps the conversation view for the thread list —
-// tap a thread to switch in, long-press to delete, or "New
-// conversation" to reset to the starter prompts.
+// Phase 8 + 0017: per-thread persistence + per-loan threads. The
+// list shows account thread + every loan thread; long-press a
+// row to delete.
 //
 // Layout: full-screen native-messaging feel — thin header at the
-// top, thread fills the middle, composer pinned at the bottom and
-// rides the keyboard up.
+// top, list OR thread fills the middle, composer (in chat view
+// only) pinned at the bottom and rides the keyboard up.
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -61,8 +63,13 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
   const sendMessage = useSendAIChatMessage();
   const deleteThread = useDeleteAIChatThread();
 
+  // When the caller controls the thread (initialThreadId set), we
+  // jump straight into chat. When they don't, we land in the
+  // conversations LIST — never auto-pick a specific thread for the
+  // user (per operator request: "show the chat system in
+  // conversations view, not into a specific chat itself").
   const [activeThreadId, setActiveThreadId] = useState<string | null>(initialThreadId ?? null);
-  const [showList, setShowList] = useState(false);
+  const [showList, setShowList] = useState<boolean>(!initialThreadId);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
@@ -70,24 +77,17 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
   const activeThreadQ = useAIChatThread(activeThreadId);
   const messages = activeThreadQ.data?.messages ?? [];
 
-  // Sync prop → state when caller changes the target thread (e.g.
-  // user picked a different thread in the Messages tab without
-  // closing the sheet between them).
+  // Sync prop → state. When the parent provides a thread, jump
+  // into it. When the parent clears it (or never provides one),
+  // reset to the list view so each fresh open lands on the list.
   useEffect(() => {
-    if (initialThreadId !== undefined && initialThreadId !== null) {
+    if (initialThreadId) {
       setActiveThreadId(initialThreadId);
+      setShowList(false);
+    } else {
+      setShowList(true);
     }
-  }, [initialThreadId]);
-
-  // On first open of the sheet (no caller-supplied thread), snap
-  // onto the most recent thread.
-  useEffect(() => {
-    if (!visible) return;
-    if (initialThreadId) return; // caller controls
-    if (activeThreadId == null && threadsQ.data && threadsQ.data.length > 0) {
-      setActiveThreadId(threadsQ.data[0].id);
-    }
-  }, [visible, threadsQ.data, activeThreadId, initialThreadId]);
+  }, [initialThreadId, visible]);
 
   // Auto-scroll the thread to the bottom when a new message lands or
   // the AI starts thinking.
@@ -194,8 +194,17 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
             }}
           >
             <Pressable
-              onPress={onClose}
-              accessibilityLabel="Close"
+              onPress={() => {
+                // In chat view (and the sheet WASN'T locked to a single
+                // thread by initialThreadId) the left arrow goes back to
+                // the conversations list. Otherwise it closes the sheet.
+                if (!showList && !initialThreadId) {
+                  setShowList(true);
+                  return;
+                }
+                onClose();
+              }}
+              accessibilityLabel={!showList && !initialThreadId ? "Back to conversations" : "Close"}
               hitSlop={10}
               style={({ pressed }) => ({
                 width: 36, height: 36, borderRadius: 999,
@@ -203,7 +212,11 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                 alignItems: "center", justifyContent: "center",
               })}
             >
-              <Icon name="chevL" size={18} color={t.ink2} />
+              <Icon
+                name={!showList && !initialThreadId ? "chevL" : "x"}
+                size={18}
+                color={t.ink2}
+              />
             </Pressable>
             <View
               style={{
@@ -219,7 +232,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                 numberOfLines={1}
                 style={{ fontSize: 14, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }}
               >
-                {showList ? "Conversations" : "AI Intelligent Underwriter"}
+                {showList ? "Conversations" : (activeTitle ?? "AI Intelligent Underwriter")}
               </Text>
               <Text
                 numberOfLines={1}
@@ -227,21 +240,9 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
               >
                 {showList
                   ? `${sortedThreads.length} saved`
-                  : (activeTitle ?? context ?? "Cross-loan account context")}
+                  : (context ?? "AI Intelligent Underwriter")}
               </Text>
             </View>
-            <Pressable
-              onPress={() => setShowList((s) => !s)}
-              accessibilityLabel={showList ? "Back to conversation" : "Browse conversations"}
-              hitSlop={10}
-              style={({ pressed }) => ({
-                width: 36, height: 36, borderRadius: 999,
-                backgroundColor: pressed ? t.chip : "transparent",
-                alignItems: "center", justifyContent: "center",
-              })}
-            >
-              <Icon name={showList ? "x" : "layers"} size={16} color={t.ink2} />
-            </Pressable>
           </View>
 
           {showList ? (
