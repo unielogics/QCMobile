@@ -96,12 +96,28 @@ export function useLoan(loanId: string | null | undefined) {
   });
 }
 
+// Single canonical credit hook used by /profile, /home, /simulator, and
+// /credit-pull. ALL of these need to see the same source of truth — when
+// the borrower pulls credit on desktop and reopens mobile, every screen
+// should reflect it without refetching individually.
+//
+// Previously we had two hooks (useCreditCurrent + useMyCredit) with
+// DIFFERENT queryKeys hitting the SAME endpoint. The backend ignores the
+// client_id query param and just uses user.client.id, so the responses
+// are identical, but react-query treated them as separate caches —
+// causing profile to show the score while home/simulator stayed gated.
+//
+// This consolidates: both names point at the same useQuery so any
+// consumer's mount/refocus refetch warms the cache for everyone else.
 export function useCreditCurrent() {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
   return useQuery({
-    queryKey: ["credit", key],
+    queryKey: ["credit-current", key],
     queryFn: () => fetcher<CreditPullStatus | null>("/credit/current"),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 30 * 1000,
   });
 }
 
@@ -139,13 +155,13 @@ export function useStartCreditPull() {
     mutationFn: (payload: Record<string, unknown>) =>
       fetcher<CreditPullStatus>("/credit/pull", { method: "POST", body: JSON.stringify(payload) }),
     onSuccess: (data) => {
-      // The simulator reads from useMyCredit (queryKey ["my-credit", key])
-      // while useCreditCurrent uses ["credit", key]. Populate BOTH caches
-      // synchronously so the simulator unlocks immediately when the user
-      // navigates back from the credit-pull screen, without waiting for a
-      // background refetch. Then invalidate the prefixes to be safe.
-      qc.setQueryData(["credit", key], data);
-      qc.setQueryData(["my-credit", key], data);
+      // useMyCredit / useCreditCurrent are now a single hook backed by
+      // queryKey ["credit-current", key]. Seed it so the simulator
+      // unlocks immediately when the user navigates back from credit-pull.
+      // We also leave the legacy invalidations in place in case any other
+      // module was caching under those older prefixes.
+      qc.setQueryData(["credit-current", key], data);
+      qc.invalidateQueries({ queryKey: ["credit-current"] });
       qc.invalidateQueries({ queryKey: ["credit"] });
       qc.invalidateQueries({ queryKey: ["my-credit"] });
     },
@@ -279,8 +295,16 @@ export function useFredSeries(days?: number) {
   return useQuery({
     queryKey: ["fredSeries", key, requested ?? "default"],
     queryFn: () => fetcher<FredSeriesSummary[]>(path),
-    staleTime: 5 * 60 * 1000,
-    retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
+    // Previously: 5-min staleTime + 1-retry cap meant a single transient
+    // 401 (e.g. during a sign-in race) left the hook stuck on the cached
+    // error for 5 min — and the user saw "market rates not loading".
+    // Now: 60s staleTime, retry up to 3 times on transport errors,
+    // refetch on every mount so navigating back to home/calculator
+    // always re-attempts.
+    staleTime: 60 * 1000,
+    retry: (failureCount, error) => !isNotFound(error) && failureCount < 3,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -325,18 +349,10 @@ export function useFreeCalc() {
 // desktop's useMyCredit. The plain useCreditCurrent (no scope) works for
 // any role; this version is the one to call from CLIENT-only flows so the
 // intent is explicit in the code.
+// Alias for useCreditCurrent — same cache, same data. Kept as a separate
+// name only so existing callers don't have to be touched. New code should
+// prefer useCreditCurrent directly. See the comment on useCreditCurrent
+// for the consolidation rationale.
 export function useMyCredit() {
-  const fetcher = useAuthedFetch();
-  const key = useCacheKey();
-  return useQuery({
-    queryKey: ["my-credit", key],
-    queryFn: () => fetcher<CreditPullStatus | null>("/credit/current?client_id=self"),
-    // Force a refetch every time the screen mounts. Without this, screens
-    // that read this hook (home, calculator, profile) can render against
-    // a cached null from BEFORE the borrower ran a soft pull on another
-    // device, leaving the simulator falsely gated.
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
-    staleTime: 30 * 1000,
-  });
+  return useCreditCurrent();
 }
