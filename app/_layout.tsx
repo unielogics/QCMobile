@@ -51,6 +51,7 @@ function AuthGate() {
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="loan/[id]" options={{ presentation: "card" }} />
+      <Stack.Screen name="pipeline" options={{ presentation: "card" }} />
       <Stack.Screen name="credit-pull" options={{ presentation: "modal" }} />
     </Stack>
   );

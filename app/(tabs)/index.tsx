@@ -206,13 +206,35 @@ export default function Home() {
           </>
         ) : null}
 
-        {/* Pipeline — borrower style top-3 cards */}
-        <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingHorizontal: 4, marginBottom: 10, marginTop: 8 }}>
-          <Text style={{ fontSize: 11, fontWeight: "700", letterSpacing: 1.6, color: t.ink3, textTransform: "uppercase" }}>Your loans</Text>
+        {/* Pipeline — borrower style top-3 cards. Header is a Pressable
+            that routes to the full Pipeline list (qcmobile/app/pipeline.tsx). */}
+        <Pressable
+          onPress={() => router.push("/pipeline")}
+          hitSlop={6}
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            paddingHorizontal: 4,
+            marginBottom: 10,
+            marginTop: 8,
+            opacity: pressed ? 0.6 : 1,
+          })}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text style={{ fontSize: 11, fontWeight: "700", letterSpacing: 1.6, color: t.ink3, textTransform: "uppercase" }}>
+              Your loans
+            </Text>
+            <Icon name="chevR" size={11} color={t.ink3} />
+          </View>
           <Text style={{ color: t.ink3, fontSize: 11, fontWeight: "600" }}>
-            {inFlight.length > 0 ? `${inFlight.length} active` : `${loans.length} total`}
+            {inFlight.length > 0
+              ? `${inFlight.length} active · view all`
+              : loans.length > 0
+                ? `${loans.length} total · view all`
+                : "view all"}
           </Text>
-        </View>
+        </Pressable>
         <View style={{ gap: 10, marginBottom: 20 }}>
           {loans.length === 0 ? (
             <Card pad={20}>
@@ -223,6 +245,24 @@ export default function Home() {
           ) : (
             loans.slice(0, 3).map((l) => <LoanCard key={l.id} loan={l} />)
           )}
+          {loans.length > 3 ? (
+            <Pressable
+              onPress={() => router.push("/pipeline")}
+              style={({ pressed }) => ({
+                paddingVertical: 10,
+                alignItems: "center",
+                borderRadius: 10,
+                backgroundColor: t.surface,
+                borderWidth: 1,
+                borderColor: t.line,
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ fontSize: 12, fontWeight: "700", color: t.brand }}>
+                See all {loans.length} loans →
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
         {/* Today's events */}
