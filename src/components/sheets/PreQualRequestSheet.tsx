@@ -163,9 +163,19 @@ export function PreQualRequestSheet({
 
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: "rgba(6,7,11,0.55)", justifyContent: "flex-end" }}>
-        <Pressable style={{ flex: 1 }} onPress={onClose} />
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView
+        // Android also needs an explicit behavior — leaving it undefined
+        // means the keyboard overlays the bottom of the sheet and the
+        // closing-date / SOW / submit controls disappear under it.
+        // "height" pairs with windowSoftInputMode=adjustResize in the
+        // manifest so the bottom sheet visibly shrinks; "padding" keeps
+        // iOS smooth.
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
+      >
+        <View style={{ flex: 1, backgroundColor: "rgba(6,7,11,0.55)", justifyContent: "flex-end" }}>
+          <Pressable style={{ flex: 1 }} onPress={onClose} />
           <View
             style={{
               backgroundColor: t.bg,
@@ -211,7 +221,17 @@ export function PreQualRequestSheet({
                 </Text>
               </View>
             ) : (
-              <ScrollView contentContainerStyle={{ paddingTop: 14, paddingBottom: 8, gap: 14 }} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                contentContainerStyle={{ paddingTop: 14, paddingBottom: 24, gap: 14 }}
+                showsVerticalScrollIndicator={false}
+                // keyboardShouldPersistTaps lets the user tap a button
+                // (e.g. Submit, the closing-date field) WHILE the keyboard
+                // is open without the first tap being eaten by the
+                // dismiss-keyboard gesture. interactive lets a downward
+                // drag pull the keyboard back down.
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
+              >
                 {/* F&F gets a 2-step flow. Step 1 is the deal
                     fundamentals; Step 2 is the SOW. Other products
                     skip the indicator and stay single-step. */}
@@ -515,8 +535,8 @@ export function PreQualRequestSheet({
               </ScrollView>
             )}
           </View>
-        </KeyboardAvoidingView>
-      </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
