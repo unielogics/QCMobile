@@ -9,7 +9,6 @@ import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
-import { Card } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
 import { TopBar } from "@/components/TopBar";
 import { Fab } from "@/components/Fab";
@@ -90,9 +89,6 @@ export default function CalendarScreen() {
     [byDay],
   );
 
-  const HUE_FG = { brand: t.brand, gold: t.gold, petrol: t.petrol } as const;
-  const HUE_BG = { brand: t.brandSoft, gold: t.goldSoft, petrol: t.petrolSoft } as const;
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
       <TopBar title="Activity" />
@@ -170,14 +166,35 @@ export default function CalendarScreen() {
                     </Text>
                   </View>
 
-                  <Card pad={0}>
-                    {evs.map((e, i) => {
+                  {/* Each event is its own colored pill — green when
+                      done, red when overdue, yellow when pending and
+                      not yet due. No checkbox; tapping toggles done.
+                      The pill carries the status signal end-to-end so
+                      the user reads completion state at a glance. */}
+                  <View style={{ gap: 8 }}>
+                    {evs.map((e) => {
                       const meta = KIND_META[e.kind as keyof typeof KIND_META];
-                      const hue = meta ? HUE_FG[meta.hue] : t.brand;
-                      const hbg = meta ? HUE_BG[meta.hue] : t.brandSoft;
                       const isPriority = e.priority === "high";
                       const isDone = e.status === "done";
                       const isCancelled = e.status === "cancelled";
+                      const startsAt = new Date(e.starts_at).getTime();
+                      const isOverdue = !isDone && !isCancelled && startsAt < Date.now();
+                      // Status color: green=done, red=overdue, yellow=pending.
+                      // Cancelled events fall back to neutral gray.
+                      const statusFg = isCancelled
+                        ? t.ink3
+                        : isDone
+                          ? t.profit
+                          : isOverdue
+                            ? t.danger
+                            : t.warn;
+                      const statusBg = isCancelled
+                        ? t.surface2
+                        : isDone
+                          ? t.profitBg
+                          : isOverdue
+                            ? t.dangerBg
+                            : t.warnBg;
                       const onToggleDone = () => {
                         update.mutate({
                           id: e.id,
@@ -191,36 +208,45 @@ export default function CalendarScreen() {
                           style={({ pressed }) => ({
                             flexDirection: "row",
                             alignItems: "center",
-                            gap: 12,
-                            paddingVertical: 12,
-                            paddingHorizontal: 14,
-                            borderBottomWidth: i < evs.length - 1 ? 1 : 0,
-                            borderBottomColor: t.line,
-                            backgroundColor: pressed ? t.surface2 : "transparent",
-                            opacity: isDone || isCancelled ? 0.55 : 1,
+                            gap: 10,
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            borderRadius: 14,
+                            borderWidth: 1,
+                            borderColor: statusFg,
+                            backgroundColor: pressed ? t.surface2 : statusBg,
+                            opacity: isCancelled ? 0.6 : 1,
                           })}
                         >
-                          {/* Done checkbox */}
+                          {/* Time */}
+                          <Text
+                            style={{
+                              minWidth: 42,
+                              fontSize: 11,
+                              fontWeight: "700",
+                              color: statusFg,
+                              letterSpacing: 0.3,
+                              fontVariant: ["tabular-nums"],
+                            }}
+                          >
+                            {HHMM(e.starts_at)}
+                          </Text>
+                          {/* Kind icon — colored by status, not by hue */}
                           <View
                             style={{
-                              width: 22,
-                              height: 22,
-                              borderRadius: 6,
-                              borderWidth: 1.5,
-                              borderColor: isDone ? t.profit : t.lineStrong,
-                              backgroundColor: isDone ? t.profit : "transparent",
+                              width: 28,
+                              height: 28,
+                              borderRadius: 8,
+                              backgroundColor: t.bg,
+                              borderWidth: 1,
+                              borderColor: statusFg,
                               alignItems: "center",
                               justifyContent: "center",
                             }}
                           >
-                            {isDone ? <Icon name="check" size={12} color={t.inverse} /> : null}
+                            <Icon name={meta?.icon ?? "calendar"} size={13} color={statusFg} />
                           </View>
-                          <Text style={{ minWidth: 44, fontSize: 11, fontWeight: "700", color: t.ink2, letterSpacing: 0.3 }}>
-                            {HHMM(e.starts_at)}
-                          </Text>
-                          <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: hbg, alignItems: "center", justifyContent: "center" }}>
-                            <Icon name={meta?.icon ?? "calendar"} size={15} color={hue} />
-                          </View>
+                          {/* Title + meta */}
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                               <Text
@@ -228,7 +254,7 @@ export default function CalendarScreen() {
                                 style={{
                                   flex: 1,
                                   fontSize: 13,
-                                  fontWeight: "600",
+                                  fontWeight: "700",
                                   color: t.ink,
                                   letterSpacing: -0.2,
                                   textDecorationLine: isDone || isCancelled ? "line-through" : "none",
@@ -236,30 +262,38 @@ export default function CalendarScreen() {
                               >
                                 {e.title}
                               </Text>
-                              {isPriority ? (
+                              {isPriority && !isDone && !isCancelled ? (
                                 <View style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: t.danger }} />
                               ) : null}
                             </View>
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1 }}>
-                              {e.who ? (
-                                <Text numberOfLines={1} style={{ fontSize: 11, color: t.ink3 }}>
-                                  {e.who}
-                                </Text>
-                              ) : null}
-                              {e.source === "auto" ? (
-                                <>
-                                  {e.who ? <Text style={{ fontSize: 11, color: t.ink3 }}>·</Text> : null}
-                                  <Text style={{ fontSize: 10, fontWeight: "700", color: t.petrol, letterSpacing: 0.5 }}>
-                                    AUTO
+                            {(e.who || e.source === "auto" || isOverdue) ? (
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
+                                {isOverdue ? (
+                                  <Text style={{ fontSize: 10, fontWeight: "700", color: t.danger, letterSpacing: 0.5 }}>
+                                    OVERDUE
                                   </Text>
-                                </>
-                              ) : null}
-                            </View>
+                                ) : null}
+                                {isOverdue && e.who ? <Text style={{ fontSize: 11, color: t.ink3 }}>·</Text> : null}
+                                {e.who ? (
+                                  <Text numberOfLines={1} style={{ fontSize: 11, color: t.ink3, flex: 1 }}>
+                                    {e.who}
+                                  </Text>
+                                ) : null}
+                                {e.source === "auto" ? (
+                                  <>
+                                    {(e.who || isOverdue) ? <Text style={{ fontSize: 11, color: t.ink3 }}>·</Text> : null}
+                                    <Text style={{ fontSize: 10, fontWeight: "700", color: t.petrol, letterSpacing: 0.5 }}>
+                                      AUTO
+                                    </Text>
+                                  </>
+                                ) : null}
+                              </View>
+                            ) : null}
                           </View>
                         </Pressable>
                       );
                     })}
-                  </Card>
+                  </View>
                 </View>
               );
             })}
