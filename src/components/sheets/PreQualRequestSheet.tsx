@@ -21,10 +21,16 @@ import {
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 import { Pill, QButton } from "@/design-system/primitives";
-import { useSubmitPrequalRequest } from "@/hooks/useApi";
-import type { PrequalLoanType } from "@/lib/types";
+import { QC_FMT } from "@/design-system/tokens";
+import { useCreditSummary, useMyCredit, useSubmitPrequalRequest } from "@/hooks/useApi";
+import {
+  PREQUAL_LOAN_TYPE_LABELS,
+  PREQUAL_LTV_CAPS,
+  type PrequalLoanType,
+} from "@/lib/types";
 
-const LTV_CAPS: Record<PrequalLoanType, number> = { dscr: 0.8, bridge: 0.85 };
+const LTV_CAPS = PREQUAL_LTV_CAPS;
+const PRODUCT_OPTIONS: PrequalLoanType[] = ["dscr_purchase", "dscr_refi", "fix_flip", "bridge"];
 
 interface Props {
   visible: boolean;
@@ -42,8 +48,13 @@ export function PreQualRequestSheet({
 }: Props) {
   const { t } = useTheme();
   const submit = useSubmitPrequalRequest();
+  // Tier-adjusted LTV: pull current credit + summary so we can show the
+  // borrower their effective ceiling (program × tier, whichever is
+  // tighter). Falls back to program cap when no credit on file.
+  const { data: credit } = useMyCredit();
+  const { data: creditSummary } = useCreditSummary(credit?.id);
 
-  const [loanType, setLoanType] = useState<PrequalLoanType>(initialLoanType ?? "dscr");
+  const [loanType, setLoanType] = useState<PrequalLoanType>(initialLoanType ?? "dscr_purchase");
   const [address, setAddress] = useState(initialAddress ?? "");
   const [purchaseText, setPurchaseText] = useState("");
   const [loanText, setLoanText] = useState("");
@@ -56,7 +67,7 @@ export function PreQualRequestSheet({
 
   useEffect(() => {
     if (visible) {
-      setLoanType(initialLoanType ?? "dscr");
+      setLoanType(initialLoanType ?? "dscr_purchase");
       setAddress(initialAddress ?? "");
       setPurchaseText("");
       setLoanText("");
@@ -72,8 +83,16 @@ export function PreQualRequestSheet({
   const purchaseNum = Number(purchaseText.replace(/[^0-9.]/g, "")) || 0;
   const loanNum = Number(loanText.replace(/[^0-9.]/g, "")) || 0;
   const ltv = purchaseNum > 0 ? loanNum / purchaseNum : 0;
-  const cap = LTV_CAPS[loanType];
-  const ltvOverCap = ltv > cap + 1e-6;
+  // Effective LTV cap = the tighter of program ceiling and tier ceiling.
+  // tier_max_ltv comes from /credit/summary (e.g. blocked → 0,
+  // basic/warn → 0.65, pro → 0.75). When no credit summary is on file
+  // we fall back to the program cap alone.
+  const programCap = LTV_CAPS[loanType];
+  const tierMaxLtv = creditSummary?.tier_max_ltv ?? null;
+  const tierConstrained = tierMaxLtv != null && tierMaxLtv > 0 && tierMaxLtv < programCap;
+  const effectiveCap = tierConstrained ? (tierMaxLtv as number) : programCap;
+  const maxLoan = purchaseNum > 0 ? purchaseNum * effectiveCap : 0;
+  const ltvOverCap = ltv > effectiveCap + 1e-6;
   const formValid = address.trim().length >= 3 && purchaseNum > 0 && loanNum > 0;
 
   const onSubmit = async () => {
@@ -154,40 +173,68 @@ export function PreQualRequestSheet({
               </View>
             ) : (
               <ScrollView contentContainerStyle={{ paddingTop: 14, paddingBottom: 8, gap: 14 }} showsVerticalScrollIndicator={false}>
-                {/* Loan program */}
+                {/* Loan program — 2x2 grid of 4 products */}
                 <View>
                   <FieldLabel t={t}>Loan program</FieldLabel>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    {(
-                      [
-                        { id: "dscr" as const,   title: "DSCR Rental",   sub: "30-yr fixed" },
-                        { id: "bridge" as const, title: "Bridge",         sub: "Short-term" },
-                      ]
-                    ).map((opt) => {
-                      const active = loanType === opt.id;
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -4 }}>
+                    {PRODUCT_OPTIONS.map((id) => {
+                      const meta = PREQUAL_LOAN_TYPE_LABELS[id];
+                      const active = loanType === id;
+                      const progCap = LTV_CAPS[id];
+                      const optEffective = tierConstrained ? Math.min(progCap, tierMaxLtv as number) : progCap;
+                      const optTierBound = tierConstrained && (tierMaxLtv as number) < progCap;
                       return (
-                        <Pressable
-                          key={opt.id}
-                          onPress={() => setLoanType(opt.id)}
-                          style={({ pressed }) => ({
-                            flex: 1,
-                            padding: 12,
-                            borderRadius: 12,
-                            borderWidth: 1.5,
-                            borderColor: active ? t.brand : t.line,
-                            backgroundColor: active ? t.brandSoft : t.surface2,
-                            opacity: pressed ? 0.9 : 1,
-                          })}
-                        >
-                          <Text style={{ fontSize: 13, fontWeight: "700", color: t.ink }}>{opt.title}</Text>
-                          <Text style={{ fontSize: 11, color: t.ink2, marginTop: 2 }}>{opt.sub}</Text>
-                          <Text style={{ fontSize: 9.5, color: t.ink3, marginTop: 4, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" }}>
-                            Max LTV {Math.round(LTV_CAPS[opt.id] * 100)}%
-                          </Text>
-                        </Pressable>
+                        <View key={id} style={{ width: "50%", padding: 4 }}>
+                          <Pressable
+                            onPress={() => setLoanType(id)}
+                            style={({ pressed }) => ({
+                              padding: 12,
+                              borderRadius: 12,
+                              borderWidth: 1.5,
+                              borderColor: active ? t.brand : t.line,
+                              backgroundColor: active ? t.brandSoft : t.surface2,
+                              opacity: pressed ? 0.9 : 1,
+                              minHeight: 78,
+                            })}
+                          >
+                            <Text style={{ fontSize: 13, fontWeight: "700", color: t.ink }}>{meta.title}</Text>
+                            <Text style={{ fontSize: 10.5, color: t.ink2, marginTop: 2, lineHeight: 14 }}>{meta.sub}</Text>
+                            <Text style={{
+                              fontSize: 9.5,
+                              color: optTierBound ? t.warn : t.ink3,
+                              marginTop: 4,
+                              fontWeight: "700",
+                              letterSpacing: 0.5,
+                              textTransform: "uppercase",
+                            }}>
+                              Max LTV {Math.round(optEffective * 100)}%
+                              {optTierBound ? " · tier" : ""}
+                            </Text>
+                          </Pressable>
+                        </View>
                       );
                     })}
                   </View>
+                  {/* Tier hint */}
+                  {tierMaxLtv != null && tierMaxLtv > 0 ? (
+                    <Text style={{ fontSize: 11, color: t.ink3, marginTop: 8, lineHeight: 15.5 }}>
+                      Your credit profile{creditSummary?.tier ? ` (${creditSummary.tier} tier)` : ""}{" "}
+                      caps leverage at{" "}
+                      <Text style={{ fontWeight: "800", color: t.ink2 }}>
+                        {Math.round((tierMaxLtv as number) * 100)}% LTV
+                      </Text>
+                      . Programs with higher ceilings use this tier number.
+                    </Text>
+                  ) : tierMaxLtv === 0 ? (
+                    <Text style={{ fontSize: 11, color: t.danger, marginTop: 8, lineHeight: 15.5 }}>
+                      Your credit profile is currently blocked from new commercial financing.
+                    </Text>
+                  ) : (
+                    <Text style={{ fontSize: 11, color: t.ink3, marginTop: 8, lineHeight: 15.5 }}>
+                      Caps shown are the program ceiling. Once your credit pull is on
+                      file we&apos;ll show your tier-adjusted maximum here.
+                    </Text>
+                  )}
                 </View>
 
                 {/* Address */}
@@ -204,7 +251,7 @@ export function PreQualRequestSheet({
                   <View style={{ flex: 1 }}>
                     <FieldText
                       t={t}
-                      label="Purchase price"
+                      label={loanType === "dscr_refi" ? "Property value" : "Purchase price"}
                       value={purchaseText}
                       onChange={setPurchaseText}
                       placeholder="400000"
@@ -212,13 +259,25 @@ export function PreQualRequestSheet({
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <FieldText
-                      t={t}
-                      label="Requested loan"
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                      <Text style={{ fontSize: 10.5, fontWeight: "700", color: t.ink3, letterSpacing: 1.0, textTransform: "uppercase" }}>
+                        Requested loan
+                      </Text>
+                      {maxLoan > 0 ? (
+                        <Pressable onPress={() => setLoanText(String(Math.round(maxLoan)))} hitSlop={6}>
+                          <Text style={{ fontSize: 10.5, fontWeight: "800", color: t.petrol }}>
+                            Max {QC_FMT.usd(maxLoan, 0)}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                    <TextInput
                       value={loanText}
-                      onChange={setLoanText}
+                      onChangeText={setLoanText}
                       placeholder="320000"
+                      placeholderTextColor={t.ink4}
                       keyboardType="numeric"
+                      style={inputStyle(t)}
                     />
                   </View>
                 </View>
@@ -230,8 +289,8 @@ export function PreQualRequestSheet({
                     color={ltvOverCap ? t.danger : t.profit}
                   >
                     {`Requested LTV ${(ltv * 100).toFixed(1)}% · ${ltvOverCap
-                      ? `over ${Math.round(cap * 100)}% cap — underwriter will adjust`
-                      : `within ${Math.round(cap * 100)}% cap`}`}
+                      ? `over ${Math.round(effectiveCap * 100)}% cap${tierConstrained ? " (tier)" : ""} — underwriter will adjust`
+                      : `within ${Math.round(effectiveCap * 100)}% cap${tierConstrained ? " (tier-adjusted)" : ""}`}`}
                   </Pill>
                 ) : null}
 
