@@ -505,6 +505,7 @@ function RateCard({
         spread_bps: number;
         delta_bps: number | null;
         history_7d: { date: string; value: number | null }[];
+        history_30d?: { date: string; value: number | null }[];
       }
     | undefined;
   onPress?: () => void;
@@ -516,9 +517,16 @@ function RateCard({
   const spreadBps = series?.spread_bps ?? 0;
   const delta = series?.delta_bps ?? null;
   const deltaColor = delta == null ? t.ink3 : delta < 0 ? t.profit : delta > 0 ? t.danger : t.ink3;
-  // Pass the full history (date + value) into FredChart so the touch
-  // tooltip can show date + Δbps. Filter out null values up front.
-  const chartPoints = (series?.history_7d ?? []).filter((p) => p.value != null);
+  // Inline chart points. DPRIME (Fix & Flip + Ground Up) publishes
+  // weekly so its history_7d is empty most days — fall back to the
+  // most recent valid points from history_30d so sparse series like
+  // those still render.
+  const chartPoints = (() => {
+    const seven = (series?.history_7d ?? []).filter((p) => p.value != null);
+    if (seven.length >= 2) return seven;
+    const thirty = (series?.history_30d ?? []).filter((p) => p.value != null);
+    return thirty.slice(-7);
+  })();
 
   return (
     <Card pad={12} onPress={onPress}>
