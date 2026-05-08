@@ -8,7 +8,7 @@
 // /documents/upload-init. The kind becomes Document.category upstream so
 // the tabs can filter.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -25,7 +25,13 @@ import { useDocuments, useLoans, useUploadDocument } from "@/hooks/useApi";
 import type { Document, Loan } from "@/lib/types";
 
 type DocStatus = Document["status"];
-type VaultTab = "experience" | "active_asset";
+// Three tabs:
+//   requested    — open AI-driven asks (checklist items the AI auto-
+//                  requested at intake or via reminders). Tap a row →
+//                  upload flow pre-bound to that doc.
+//   experience   — proof of past deals
+//   active_asset — currently-owned real estate
+type VaultTab = "requested" | "experience" | "active_asset";
 
 function statusKind(status: DocStatus): "verified" | "pending" | "flagged" {
   if (status === "verified" || status === "received") return "verified";
@@ -33,8 +39,10 @@ function statusKind(status: DocStatus): "verified" | "pending" | "flagged" {
   return "pending";
 }
 
-// Match a doc to a tab. Uncategorized legacy uploads default to the
-// "experience" tab since that's what the vault was historically used for.
+// Match a doc to a category tab. Uncategorized legacy uploads default
+// to the "experience" tab since that's what the vault was historically
+// used for. The new "requested" tab is filtered by status, not by
+// category, so this helper isn't called for it.
 function tabFor(category: string | null | undefined): VaultTab {
   if (category === "active_asset") return "active_asset";
   return "experience";
@@ -72,9 +80,15 @@ export default function Vault() {
   const [pendingPrefilledName, setPendingPrefilledName] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Filter docs by active tab (kept stable so we can derive both stats
-  // and the grouped list from the same source).
-  const tabDocs = useMemo(() => docs.filter((d) => tabFor(d.category) === tab), [docs, tab]);
+  // Filter docs by active tab. "Requested" is special — filters by
+  // status (REQUESTED) regardless of category, since checklist items
+  // from kickoff_loan don't carry a category at all.
+  const tabDocs = useMemo(() => {
+    if (tab === "requested") {
+      return docs.filter((d) => d.status === "requested");
+    }
+    return docs.filter((d) => d.status !== "requested" && tabFor(d.category) === tab);
+  }, [docs, tab]);
 
   // Stats — derived from the active tab's docs only, so the headline
   // numbers reflect the section the user is looking at.
@@ -85,12 +99,27 @@ export default function Vault() {
     return { total, verified, flagged };
   }, [tabDocs]);
 
-  // Tab counts for the header pills (so the user sees how many docs
-  // live behind the OTHER tab without having to switch).
+  // Tab counts for the header pills.
   const tabCounts = useMemo(() => ({
-    experience: docs.filter((d) => tabFor(d.category) === "experience").length,
-    active_asset: docs.filter((d) => tabFor(d.category) === "active_asset").length,
+    requested: docs.filter((d) => d.status === "requested").length,
+    experience: docs.filter((d) => d.status !== "requested" && tabFor(d.category) === "experience").length,
+    active_asset: docs.filter((d) => d.status !== "requested" && tabFor(d.category) === "active_asset").length,
   }), [docs]);
+
+  // First-load default: land on "Requested" whenever there's at
+  // least one open request — that's the AI's task list, it should
+  // be in the borrower's face. Tracks a `defaulted` ref so we
+  // don't override the tab the user manually picked.
+  const defaultedRef = useRef(false);
+  useEffect(() => {
+    if (defaultedRef.current) return;
+    if (tabCounts.requested > 0) {
+      setTab("requested");
+      defaultedRef.current = true;
+    } else if (tabCounts.experience > 0 || tabCounts.active_asset > 0) {
+      defaultedRef.current = true;
+    }
+  }, [tabCounts.requested, tabCounts.experience, tabCounts.active_asset]);
 
   // Upload flow: FAB / dashed CTA → kind sheet → action sheet → property picker.
   const onPickKind = (kind: UploadKind) => {
@@ -252,6 +281,13 @@ export default function Vault() {
         >
           <TabButton
             t={t}
+            label="Requested"
+            count={tabCounts.requested}
+            active={tab === "requested"}
+            onPress={() => setTab("requested")}
+          />
+          <TabButton
+            t={t}
             label="Experience"
             count={tabCounts.experience}
             active={tab === "experience"}
@@ -343,12 +379,18 @@ export default function Vault() {
           <Card pad={24} style={{ marginBottom: 14, alignItems: "center" }}>
             <Icon name="vault" size={32} color={t.ink4} />
             <Text style={{ fontSize: 14, fontWeight: "700", color: t.ink2, marginTop: 12, textAlign: "center" }}>
-              {tab === "active_asset" ? "No active assets yet" : "No experience proof yet"}
+              {tab === "requested"
+                ? "Nothing requested right now"
+                : tab === "active_asset"
+                  ? "No active assets yet"
+                  : "No experience proof yet"}
             </Text>
             <Text style={{ fontSize: 12, color: t.ink3, marginTop: 6, textAlign: "center", lineHeight: 17 }}>
-              {tab === "active_asset"
-                ? "Upload bank notes, leases, insurance, or tax bills for properties you currently own."
-                : "Upload HUDs, closing statements, deeds, or prior leases from past deals to count toward your investor experience tier."}
+              {tab === "requested"
+                ? "When the AI requests a document, it'll show up here. Tap a row to upload."
+                : tab === "active_asset"
+                  ? "Upload bank notes, leases, insurance, or tax bills for properties you currently own."
+                  : "Upload HUDs, closing statements, deeds, or prior leases from past deals to count toward your investor experience tier."}
             </Text>
           </Card>
         ) : null}
