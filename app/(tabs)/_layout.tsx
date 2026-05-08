@@ -1,6 +1,8 @@
 import { Tabs } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon, type IconName } from "@/design-system/Icon";
+import { FundingAccessGate } from "@/components/FundingAccessGate";
+import { useExperienceMode } from "@/hooks/useExperienceMode";
 
 function TabIcon({ name, color, focused }: { name: IconName; color: string; focused: boolean }) {
   return <Icon name={name} size={20} stroke={focused ? 2.4 : 1.8} color={color} />;
@@ -8,8 +10,11 @@ function TabIcon({ name, color, focused }: { name: IconName; color: string; focu
 
 export default function TabsLayout() {
   const { t } = useTheme();
+  const mode = useExperienceMode();
+  const guided = mode === "guided";
 
   return (
+    <FundingAccessGate>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -36,20 +41,21 @@ export default function TabsLayout() {
         name="calendar"
         options={{
           title: "Calendar",
+          href: guided ? null : "/(tabs)/calendar",
           tabBarIcon: ({ color, focused }) => <TabIcon name="cal" color={color} focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="simulator"
         options={{
-          title: "Simulate",
+          title: guided ? "My Deal" : "Simulate",
           tabBarIcon: ({ color, focused }) => <TabIcon name="sliders" color={color} focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="vault"
         options={{
-          title: "Vault",
+          title: guided ? "Documents" : "Vault",
           tabBarIcon: ({ color, focused }) => <TabIcon name="vault" color={color} focused={focused} />,
         }}
       />
@@ -61,5 +67,6 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
+    </FundingAccessGate>
   );
 }
