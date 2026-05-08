@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { ThemeProvider } from "@/design-system/ThemeProvider";
+import { useCurrentUser } from "@/hooks/useApi";
 import {
   usePushRegistration,
   useRegisterPushToken,
@@ -34,6 +35,11 @@ function AuthGate() {
   const { isLoaded, isSignedIn } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  // Role drives the post-sign-in destination: brokers land on the agent
+  // experience, everyone else (clients + operators) lands on the borrower
+  // tabs. We hold the redirect until /auth/me resolves so we don't flash
+  // the wrong group.
+  const { data: user } = useCurrentUser();
 
   // Kick off push-notification registration on first mount. Permission
   // prompt fires once; the resulting Expo push token is registered with
@@ -46,18 +52,31 @@ function AuthGate() {
 
   useEffect(() => {
     if (!isLoaded) return;
-    const inAuthGroup = segments[0] === "(auth)";
-    if (!isSignedIn && !inAuthGroup) {
-      router.replace("/(auth)/sign-in");
-    } else if (isSignedIn && inAuthGroup) {
-      router.replace("/(tabs)");
+    const top = segments[0];
+    const inAuthGroup = top === "(auth)";
+    const inTabsGroup = top === "(tabs)";
+    const inAgentGroup = top === "agent";
+
+    if (!isSignedIn) {
+      if (!inAuthGroup) router.replace("/(auth)/sign-in");
+      return;
     }
-  }, [isLoaded, isSignedIn, segments, router]);
+    // Signed in. Wait for /auth/me before picking a leg, otherwise we
+    // flash the wrong group on cold-start.
+    if (!user) return;
+
+    if (user.role === "broker") {
+      if (inAuthGroup || inTabsGroup) router.replace("/agent/today");
+    } else {
+      if (inAuthGroup || inAgentGroup) router.replace("/(tabs)");
+    }
+  }, [isLoaded, isSignedIn, segments, router, user]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="agent" />
       <Stack.Screen name="loan/[id]" options={{ presentation: "card" }} />
       <Stack.Screen name="pipeline" options={{ presentation: "card" }} />
       <Stack.Screen name="credit-pull" options={{ presentation: "modal" }} />

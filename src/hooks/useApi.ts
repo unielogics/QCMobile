@@ -26,7 +26,14 @@ import type {
   PrequalRequest,
   PrequalRequestCreate,
   PrequalSellerOutcome,
+  AITask,
+  BrokerSettings,
+  EngagementSignal,
+  FunnelMetrics,
+  ListScope,
+  NextAction,
 } from "@/lib/types";
+import type { ClientStage } from "@/lib/enums.generated";
 
 class NotFoundError extends Error {
   constructor(message: string) {
@@ -95,12 +102,16 @@ export function useRates() {
   });
 }
 
-export function useLoans() {
+// `scope` is optional. Pass "mine" from agent screens to ask the backend for
+// the broker's own book (matches qcdesktop's useLoans("mine")). Borrower
+// callers omit it and continue to get the auto-scoped result.
+export function useLoans(scope?: ListScope) {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
+  const qs = scope ? `?scope=${scope}` : "";
   return useQuery({
-    queryKey: ["loans", key],
-    queryFn: () => fetcher<Loan[]>("/loans"),
+    queryKey: ["loans", scope ?? "auto", key],
+    queryFn: () => fetcher<Loan[]>(`/loans${qs}`),
   });
 }
 
@@ -745,6 +756,162 @@ export function useDeclinePrequalOffer() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["prequal-requests"] });
+    },
+  });
+}
+
+// ─── Agent (broker) hooks ─────────────────────────────────────────
+// All ported from QCDashboard/src/hooks/useApi.ts. Same endpoints,
+// same query-key shape. Used exclusively by the app/agent/* routes.
+
+export function useClients(scope?: ListScope) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  const qs = scope ? `?scope=${scope}` : "";
+  return useQuery({
+    queryKey: ["clients", scope ?? "auto", key],
+    queryFn: () => fetcher<Client[]>(`/clients${qs}`),
+  });
+}
+
+export function useClient(clientId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["client", clientId, key],
+    queryFn: () => fetcher<Client>(`/clients/${clientId}`),
+    enabled: !!clientId,
+  });
+}
+
+export function useAITasks() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["aiTasks", key],
+    queryFn: () => fetcher<AITask[]>("/ai-tasks").catch(() => [] as AITask[]),
+    retry: false,
+  });
+}
+
+// /agents/me/funnel — backend-scoped to the broker's book. May 404 on
+// older deploys; agent screens fall back to deriveFunnelFromLoans().
+export function useLeadFunnel() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["leadFunnel", key],
+    queryFn: () => fetcher<FunnelMetrics>("/agents/me/funnel"),
+    staleTime: 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+    retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
+  });
+}
+
+// /agents/me/next-actions — backend-built action queue. May 404; agent
+// screens fall back to deriveNextActionsFromLoans().
+export function useNextActions() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["nextActions", key],
+    queryFn: () => fetcher<NextAction[]>("/agents/me/next-actions"),
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
+  });
+}
+
+export function useBrokerSettings() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["brokerSettings", key],
+    queryFn: () => fetcher<BrokerSettings>("/me/broker-settings"),
+    retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
+  });
+}
+
+export function useUpdateBrokerSettings() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Partial<BrokerSettings>) =>
+      fetcher<BrokerSettings>("/me/broker-settings", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["brokerSettings"] });
+    },
+  });
+}
+
+export function useEngagement(clientId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["engagement", clientId, key],
+    queryFn: () =>
+      fetcher<EngagementSignal[]>(`/clients/${clientId}/engagement`).catch(() => [] as EngagementSignal[]),
+    enabled: !!clientId,
+    retry: false,
+  });
+}
+
+// Stage transitions — both wired to dashboard's PATCH /clients/{id}/stage
+// and POST /clients/{id}/start-funding. May 404 on older backends.
+export function useUpdateClientStage() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, stage }: { clientId: string; stage: ClientStage }) =>
+      fetcher<Client>(`/clients/${clientId}/stage`, {
+        method: "PATCH",
+        body: JSON.stringify({ stage }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["client", vars.clientId] });
+    },
+  });
+}
+
+export function useStartFunding() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (clientId: string) =>
+      fetcher<Client>(`/clients/${clientId}/start-funding`, { method: "POST" }),
+    onSuccess: (_, clientId) => {
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["client", clientId] });
+      qc.invalidateQueries({ queryKey: ["loans"] });
+    },
+  });
+}
+
+// POST /clients — broker-side "Add Lead". Backend hard-stamps broker_id
+// from the session for Role.BROKER, so we don't send it.
+export function useCreateClient() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      name: string;
+      email?: string;
+      phone?: string;
+      city?: string;
+      referral_source?: string;
+      stage?: ClientStage;
+      client_type?: "buyer" | "seller";
+    }) =>
+      fetcher<Client>("/clients", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["clients"] });
     },
   });
 }

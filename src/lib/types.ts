@@ -2,8 +2,11 @@
 
 import type {
   AITaskPriority, AITaskSource, AITaskStatus, BrokerTier, CalendarEventKind,
-  DocStatus, LoanStage, LoanType, MessageFrom, PropertyType, Role,
+  ClientStage, DocStatus, LoanStage, LoanType, MessageFrom, PropertyType, Role,
 } from "./enums.generated";
+
+export type ClientType = "buyer" | "seller";
+export type ListScope = "mine" | "all";
 
 export interface User {
   id: string;
@@ -30,6 +33,10 @@ export interface Client {
   funded_count: number;
   properties: string | null;
   experience: string | null;
+  // Agent CRM fields (shared with QCDashboard). Optional so existing rows
+  // without these populated still type-check.
+  stage?: ClientStage | null;
+  client_type?: ClientType | null;
   // Mobile-app experience mode. Optional so the front-end can ship before the
   // backend column lands — deriveExperienceMode() falls back to broker_id.
   client_experience_mode?: ClientExperienceMode | null;
@@ -100,6 +107,9 @@ export interface Loan {
   // doc-checklist filtering at kickoff. Optional so existing
   // borrower-fetched payloads still type-check.
   side?: "buyer" | "seller";
+  // Health pill driven by the deal-health summarizer (LLM-backed on desktop).
+  // Optional — agent UI surfaces "stuck" / "at_risk" loans on Today.
+  deal_health?: "on_track" | "at_risk" | "stuck" | null;
 }
 
 export interface RecalcResponse {
@@ -476,4 +486,95 @@ export interface FredSeriesSummary {
   // `history` when present and falls back to `history_30d` / `history_7d`.
   history?: FredObservation[];
   history_days?: number;
+}
+
+// ── Agent dashboard metrics ────────────────────────────────────────
+// Mirrors qcdesktop's FunnelMetrics / NextAction shape (defined in
+// qcdesktop/src/hooks/useApi.ts). Backed by:
+//   GET /agents/me/funnel
+//   GET /agents/me/next-actions
+
+export interface FunnelStat {
+  value: number | null;
+  sample_size: number;
+}
+
+export interface FunnelMetrics {
+  leads_this_week: number;
+  contacted: number;
+  stale_lead_count: number;
+  intake_completion: FunnelStat;
+  prequal_conversion: FunnelStat;
+  lead_to_prequal: FunnelStat;
+  prequal_to_funded: FunnelStat;
+  clients_by_stage: Record<string, number>;
+}
+
+export type NextActionKind = "call_lead" | "chase_doc" | "closing_prep" | "pending_task";
+
+export interface NextAction {
+  id: string;
+  kind: NextActionKind;
+  priority: "high" | "medium" | "low";
+  title: string;
+  subtitle: string;
+  target_type: "client" | "loan" | "document" | "ai_task";
+  target_id: string;
+  deeplink: string;
+  created_at: string;
+  client_id: string | null;
+  loan_id: string | null;
+}
+
+// Mirrors qcdesktop's AITask shape (alembic 0021).
+export interface AITask {
+  id: string;
+  loan_id: string | null;
+  source: AITaskSource;
+  priority: AITaskPriority;
+  status: AITaskStatus;
+  action: string;
+  title: string;
+  summary: string;
+  confidence: number;
+  agent: string;
+  draft_payload: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors qcdesktop's BrokerSettings shape. Backed by:
+//   GET /me/broker-settings
+//   PUT /me/broker-settings
+export interface BrokerSettings {
+  stale_lead_threshold_days: number;
+  default_buyer_doc_set: string | null;
+  default_seller_doc_set: string | null;
+  notify_on_new_lead: boolean;
+  notify_on_stuck_deal: boolean;
+}
+
+// Mirrors qcdesktop's EngagementSignal — backed by GET /clients/{id}/engagement.
+export type EngagementSignalType =
+  | "invite_opened"
+  | "intake_started"
+  | "intake_abandoned_step"
+  | "doc_uploaded"
+  | "document_viewed"
+  | "message_viewed"
+  | "login"
+  | "last_action"
+  | "simulator_used"
+  | "profile_updated"
+  | "credit_pull_started"
+  | "credit_pull_completed"
+  | "calendar_event_viewed";
+
+export interface EngagementSignal {
+  id: string;
+  client_id: string;
+  deal_id: string | null;
+  signal_type: EngagementSignalType;
+  metadata: Record<string, unknown> | null;
+  occurred_at: string;
 }
