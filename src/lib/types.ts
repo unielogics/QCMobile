@@ -70,6 +70,13 @@ export interface Loan {
   dscr: number | null;
   risk_score: number | null;
   close_date: string | null;
+  // Property details (writable via the AI property-intake tool +
+  // desktop PropertyTab; alembic 0019 added unit_count).
+  sqft?: number | null;
+  beds?: number | null;
+  baths?: number | null;
+  year_built?: number | null;
+  unit_count?: number | null;
 }
 
 export interface RecalcResponse {
