@@ -8,7 +8,8 @@
 // /documents/upload-init. The kind becomes Document.category upstream so
 // the tabs can filter.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
@@ -44,6 +45,12 @@ export default function Vault() {
   const { data: docs = [], isLoading } = useDocuments(null);
   const { data: loans = [] } = useLoans();
   const upload = useUploadDocument();
+  const router = useRouter();
+  // Smart-route entry: calendar `document_due` events route here
+  // with `?fulfill=<doc_id>`. We pre-bind the upload flow to that
+  // doc and pop the action sheet automatically — same UX as
+  // tapping a REQUESTED row in the vault itself.
+  const params = useLocalSearchParams<{ fulfill?: string }>();
 
   // Active tab
   const [tab, setTab] = useState<VaultTab>("experience");
@@ -56,6 +63,13 @@ export default function Vault() {
   const [pendingKind, setPendingKind] = useState<UploadKind | null>(null);
   const [pendingFile, setPendingFile] = useState<PickedFile | null>(null);
   const [pendingLoanId, setPendingLoanId] = useState<string | null>(null);
+  // Smart-routing state: when the user taps a REQUESTED doc card we
+  // pre-bind the loan + fulfill_document_id so we can skip the
+  // property + checklist sheets and go straight from file-pick to
+  // upload. The user already told us which doc this is by tapping
+  // the row — we shouldn't ask them again.
+  const [pendingFulfillDocId, setPendingFulfillDocId] = useState<string | null>(null);
+  const [pendingPrefilledName, setPendingPrefilledName] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Filter docs by active tab (kept stable so we can derive both stats
@@ -86,7 +100,7 @@ export default function Vault() {
     setShowAction(true);
   };
 
-  const onPicked = (file: PickedFile) => {
+  const onPicked = async (file: PickedFile) => {
     setShowAction(false);
     setPendingFile(file);
     setUploadError(null);
@@ -96,8 +110,62 @@ export default function Vault() {
       setPendingKind(null);
       return;
     }
+    // Smart-route: when the user came in by tapping a REQUESTED
+    // doc card we already know the loan + which checklist item
+    // this file fulfills. Skip the property + checklist sheets and
+    // upload directly.
+    if (pendingFulfillDocId && pendingLoanId) {
+      try {
+        await upload.mutateAsync({
+          loan_id: pendingLoanId,
+          file,
+          category: pendingKind ?? undefined,
+          fulfill_document_id: pendingFulfillDocId,
+          name: pendingPrefilledName ?? undefined,
+        });
+        if (pendingKind) setTab(pendingKind);
+      } catch (e) {
+        setUploadError(e instanceof Error ? e.message : "Upload failed");
+      } finally {
+        setPendingFile(null);
+        setPendingKind(null);
+        setPendingLoanId(null);
+        setPendingFulfillDocId(null);
+        setPendingPrefilledName(null);
+      }
+      return;
+    }
     setShowProperty(true);
   };
+
+  // Smart-route entry point: tap a REQUESTED doc card. Pre-binds the
+  // loan + fulfill_document_id and jumps straight to the
+  // camera/library/file picker. Saves three taps.
+  const onTapRequestedDoc = (doc: Document) => {
+    setUploadError(null);
+    setPendingKind("active_asset");
+    setPendingLoanId(doc.loan_id);
+    setPendingFulfillDocId(doc.id);
+    setPendingPrefilledName(doc.name);
+    setShowAction(true);
+  };
+
+  // Deep-link from calendar tap (?fulfill=<doc_id>). Wait until the
+  // doc list has loaded so we can resolve the doc + auto-fire
+  // onTapRequestedDoc. Strip the param after handling so a tab
+  // re-render doesn't re-trigger.
+  useEffect(() => {
+    if (!params.fulfill) return;
+    if (docs.length === 0) return;
+    const target = docs.find((d) => d.id === params.fulfill);
+    if (!target || target.status !== "requested") {
+      router.replace("/(tabs)/vault");
+      return;
+    }
+    onTapRequestedDoc(target);
+    router.replace("/(tabs)/vault");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.fulfill, docs.length]);
 
   const onPickProperty = (loan: Loan) => {
     setShowProperty(false);
@@ -148,6 +216,11 @@ export default function Vault() {
   const onCancelAction = () => {
     setShowAction(false);
     setPendingKind(null);
+    // Also clear the smart-route bindings so the next FAB tap
+    // doesn't accidentally inherit them.
+    setPendingFulfillDocId(null);
+    setPendingPrefilledName(null);
+    setPendingLoanId(null);
   };
 
   // Group active-tab docs by loan
@@ -296,7 +369,12 @@ export default function Vault() {
             </SectionLabel>
             <Card pad={0}>
               {groupDocs.map((d, i) => (
-                <DocRow key={d.id} doc={d} isLast={i === groupDocs.length - 1} />
+                <DocRow
+                  key={d.id}
+                  doc={d}
+                  isLast={i === groupDocs.length - 1}
+                  onTapRequested={d.status === "requested" ? () => onTapRequestedDoc(d) : undefined}
+                />
               ))}
             </Card>
           </View>
@@ -385,18 +463,25 @@ function TabButton({
   );
 }
 
-function DocRow({ doc, isLast }: { doc: Document; isLast: boolean }) {
+function DocRow({
+  doc,
+  isLast,
+  onTapRequested,
+}: {
+  doc: Document;
+  isLast: boolean;
+  // When provided, the row becomes a Pressable that routes the user
+  // straight into the upload flow with this doc pre-bound. Only
+  // wired for REQUESTED rows by the parent — other statuses stay
+  // as plain Views so they can't be accidentally re-uploaded.
+  onTapRequested?: () => void;
+}) {
   const { t } = useTheme();
   const kind = statusKind(doc.status);
-  return (
-    <View
-      style={{
-        flexDirection: "row", alignItems: "center", gap: 12,
-        paddingVertical: 12, paddingHorizontal: 14,
-        borderBottomWidth: isLast ? 0 : 1,
-        borderBottomColor: t.line,
-      }}
-    >
+  const isRequested = !!onTapRequested;
+
+  const inner = (
+    <>
       <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: t.surface2, alignItems: "center", justifyContent: "center" }}>
         <Icon name={doc.s3_key?.toLowerCase().match(/\.(jpe?g|png|heic|webp)$/) ? "scan" : "doc"} size={15} color={t.ink2} />
       </View>
@@ -407,8 +492,42 @@ function DocRow({ doc, isLast }: { doc: Document; isLast: boolean }) {
           {doc.received_on ? ` · received ${new Date(doc.received_on).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
           {doc.requested_on && !doc.received_on ? ` · requested ${new Date(doc.requested_on).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
         </Text>
+        {isRequested ? (
+          <Text style={{ fontSize: 10.5, fontWeight: "700", color: t.warn, marginTop: 3, letterSpacing: 0.4 }}>
+            TAP TO UPLOAD →
+          </Text>
+        ) : null}
       </View>
       <VerifiedBadge kind={kind} />
+    </>
+  );
+
+  if (isRequested) {
+    return (
+      <Pressable
+        onPress={onTapRequested}
+        style={({ pressed }) => ({
+          flexDirection: "row", alignItems: "center", gap: 12,
+          paddingVertical: 12, paddingHorizontal: 14,
+          borderBottomWidth: isLast ? 0 : 1,
+          borderBottomColor: t.line,
+          backgroundColor: pressed ? t.surface2 : "transparent",
+        })}
+      >
+        {inner}
+      </Pressable>
+    );
+  }
+  return (
+    <View
+      style={{
+        flexDirection: "row", alignItems: "center", gap: 12,
+        paddingVertical: 12, paddingHorizontal: 14,
+        borderBottomWidth: isLast ? 0 : 1,
+        borderBottomColor: t.line,
+      }}
+    >
+      {inner}
     </View>
   );
 }

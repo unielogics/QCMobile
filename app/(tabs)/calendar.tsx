@@ -8,6 +8,7 @@
 import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 import { TopBar } from "@/components/TopBar";
@@ -58,6 +59,7 @@ export default function CalendarScreen() {
   const [showAIChat, setShowAIChat] = useState(false);
   const { data: events = [], isLoading, isRefetching, error, refetch } = useCalendar();
   const update = useUpdateCalendarEvent();
+  const router = useRouter();
 
   const filtered = useMemo(
     () => events.filter((e) => filter === "all" || e.kind === filter),
@@ -201,10 +203,24 @@ export default function CalendarScreen() {
                           patch: { status: isDone ? "pending" : "done" },
                         });
                       };
+                      // Smart-route: a document_due event carries the
+                      // Document UUID in external_ref_id. Tapping it
+                      // jumps the user to the vault upload flow for
+                      // that doc (?fulfill=<doc_id>) instead of just
+                      // toggling done — completion is implicit when
+                      // they actually upload.
+                      const isDocDue = e.external_ref_kind === "document_due" && !!e.external_ref_id;
+                      const onPress = () => {
+                        if (isDocDue && !isDone) {
+                          router.push({ pathname: "/(tabs)/vault", params: { fulfill: e.external_ref_id! } });
+                          return;
+                        }
+                        onToggleDone();
+                      };
                       return (
                         <Pressable
                           key={e.id}
-                          onPress={onToggleDone}
+                          onPress={onPress}
                           style={({ pressed }) => ({
                             flexDirection: "row",
                             alignItems: "center",
