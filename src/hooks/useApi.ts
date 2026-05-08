@@ -341,6 +341,11 @@ export function useAIChatThreads() {
   return useQuery({
     queryKey: ["aiChatThreads", key],
     queryFn: () => fetcher<AIChatThread[]>("/ai/chat/threads"),
+    // Poll every 15s so the chat icon's unread dot reflects new
+    // system messages (kickoff opener, anchor narration, doc-reminder
+    // tier-1) without waiting for a manual refresh.
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -351,6 +356,29 @@ export function useAIChatThread(threadId: string | null | undefined) {
     queryKey: ["aiChatThread", threadId, key],
     queryFn: () => fetcher<AIChatThreadDetail>(`/ai/chat/threads/${threadId}`),
     enabled: !!threadId,
+    // While the thread is open, poll for new messages so the AI's
+    // anchor narration ("Got your bank statements!") shows up
+    // without a manual close/reopen.
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+// Bumps `last_seen_at = now()` on the thread. Called when the
+// borrower opens a thread so the unread dot clears.
+export function useMarkThreadSeen() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  const key = useCacheKey();
+  return useMutation({
+    mutationFn: (threadId: string) =>
+      fetcher<AIChatThread>(`/ai/chat/threads/${threadId}/seen`, {
+        method: "POST",
+      }),
+    onSuccess: (_, threadId) => {
+      qc.invalidateQueries({ queryKey: ["aiChatThread", threadId, key] });
+      qc.invalidateQueries({ queryKey: ["aiChatThreads", key] });
+    },
   });
 }
 

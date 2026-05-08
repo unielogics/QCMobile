@@ -8,10 +8,10 @@
 //   6. Today's events — /calendar filtered to today
 //   7. Portfolio Health — derived from real loans (no fake data)
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import {
   Avatar,
@@ -24,6 +24,7 @@ import { QC_FMT } from "@/design-system/tokens";
 import { FredChart } from "@/components/FredChart";
 import { RateDetailModal } from "@/components/RateDetailModal";
 import {
+  useAIChatThreads,
   useCalendar,
   useCurrentUser,
   useDashboardReport,
@@ -96,6 +97,23 @@ export default function Home() {
   // account-wide entry point. New-loan creation moves to the
   // simulator's flows (already there).
   const [showAIChat, setShowAIChat] = useState(false);
+  const [forcedThreadId, setForcedThreadId] = useState<string | null>(null);
+  const { data: threads = [] } = useAIChatThreads();
+  const hasUnread = useMemo(() => threads.some((th) => th.unread), [threads]);
+
+  // Notification-tap deep-link: `?openThread=<id>` (set by
+  // usePushTapHandler in src/lib/notifications.ts) opens the chat
+  // sheet pre-targeted at that thread on next render.
+  const params = useLocalSearchParams<{ openThread?: string }>();
+  useEffect(() => {
+    if (typeof params.openThread === "string" && params.openThread) {
+      setForcedThreadId(params.openThread);
+      setShowAIChat(true);
+      // Clear the param so re-renders don't re-trigger.
+      router.setParams({ openThread: undefined });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.openThread]);
 
   const isClient = user?.role === Role.CLIENT;
   const inFlight = useMemo(() => loans.filter((l) => l.stage !== "funded"), [loans]);
@@ -328,11 +346,22 @@ export default function Home() {
         ) : null}
       </ScrollView>
 
-      <Fab onPress={() => setShowAIChat(true)} icon="chat" />
+      <Fab
+        onPress={() => {
+          setForcedThreadId(null);
+          setShowAIChat(true);
+        }}
+        icon="chat"
+        unread={hasUnread}
+      />
       <AIChatSheet
         visible={showAIChat}
-        onClose={() => setShowAIChat(false)}
+        onClose={() => {
+          setShowAIChat(false);
+          setForcedThreadId(null);
+        }}
         context="From your dashboard"
+        initialThreadId={forcedThreadId}
       />
     </SafeAreaView>
   );

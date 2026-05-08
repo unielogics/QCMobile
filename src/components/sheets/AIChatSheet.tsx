@@ -39,6 +39,7 @@ import {
   useChatAttachmentInit,
   useFindOrCreateChatThread,
   useLoans,
+  useMarkThreadSeen,
   useRouteDocument,
   useSendAIChatMessage,
 } from "@/hooks/useApi";
@@ -70,6 +71,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
   const sendMessage = useSendAIChatMessage();
   const attachmentInit = useChatAttachmentInit();
   const routeDocument = useRouteDocument();
+  const markSeen = useMarkThreadSeen();
 
   // When the caller controls the thread (initialThreadId set), we
   // jump straight into chat. When they don't, we land in the
@@ -121,6 +123,16 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
     if (messages.length === 0) return;
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
   }, [messages.length, sendMessage.isPending]);
+
+  // Mark the thread as seen whenever it becomes the active view —
+  // clears the unread dot. Re-fires when the user switches threads
+  // OR when a fresh assistant message lands while the thread is
+  // open (so seen stays caught up while the borrower is reading).
+  useEffect(() => {
+    if (showList || !activeThreadId) return;
+    markSeen.mutate(activeThreadId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeThreadId, showList, messages.length]);
 
   const openThread = async (loan_id: string | null) => {
     setError(null);
@@ -356,6 +368,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                 accent="petrol"
                 empty={!accountThread}
                 isActive={!!accountThread && activeThreadId === accountThread.id}
+                unread={!!accountThread?.unread}
                 onPress={() => openThread(null)}
               />
 
@@ -388,6 +401,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                     accent="brand"
                     empty={!th}
                     isActive={!!th && activeThreadId === th.id}
+                    unread={!!th?.unread}
                     onPress={() => openThread(loan.id)}
                   />
                 );
@@ -723,6 +737,7 @@ function ConversationRow({
   accent,
   empty,
   isActive,
+  unread,
   onPress,
 }: {
   t: ReturnType<typeof useTheme>["t"];
@@ -733,6 +748,7 @@ function ConversationRow({
   accent: "petrol" | "brand";
   empty: boolean;
   isActive: boolean;
+  unread?: boolean;
   onPress: () => void;
 }) {
   const accentColor = accent === "petrol" ? t.petrol : t.brand;
@@ -762,10 +778,33 @@ function ConversationRow({
         }}
       >
         <Icon name="chat" size={16} color={accentColor} />
+        {unread ? (
+          <View
+            style={{
+              position: "absolute",
+              top: -2,
+              right: -2,
+              width: 10,
+              height: 10,
+              borderRadius: 999,
+              backgroundColor: t.danger,
+              borderWidth: 2,
+              borderColor: t.bg,
+            }}
+          />
+        ) : null}
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <Text style={{ fontSize: 13.5, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }} numberOfLines={1}>
+          <Text
+            style={{
+              fontSize: 13.5,
+              fontWeight: unread ? "900" : "800",
+              color: t.ink,
+              letterSpacing: -0.2,
+            }}
+            numberOfLines={1}
+          >
             {title}
           </Text>
           {timestamp ? (

@@ -20,6 +20,9 @@ import { Linking, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
+import { useRouter } from "expo-router";
+import { useAuth } from "@clerk/clerk-expo";
+import { useAuthedFetch } from "@/hooks/useAuthedFetch";
 
 // Foreground notification behavior — show the banner + play the sound
 // even when the app is open. Without this, foreground pushes are
@@ -113,6 +116,72 @@ export async function openSystemNotificationSettings(): Promise<void> {
   } catch {
     // best-effort — no-op if the OS rejects the deep link
   }
+}
+
+// Registers the Expo push token with the backend (POST
+// /devices/push-tokens) once the borrower is signed in and the
+// permission flow has produced a token. Idempotent on the server
+// side — calling again with the same token just refreshes the row.
+//
+// Errors are swallowed; a failed register doesn't block the app and
+// the next reopen will retry. We re-fire when the token rotates
+// (Expo sometimes regenerates) or when the user signs in.
+export function useRegisterPushToken(state: PushRegistrationState): void {
+  const { isSignedIn } = useAuth();
+  const fetcher = useAuthedFetch();
+  useEffect(() => {
+    if (!isSignedIn || !state.token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await fetcher("/devices/push-tokens", {
+          method: "POST",
+          body: JSON.stringify({
+            token: state.token,
+            platform: state.provider ?? "expo",
+          }),
+        });
+        if (!cancelled) {
+          // eslint-disable-next-line no-console
+          console.log("[push] token registered with backend");
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("[push] register failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, state.token, state.provider, fetcher]);
+}
+
+// Listens for tap-on-notification events and routes the user into
+// the right loan thread. Notifications carry
+// `data: { kind: "ai_chat_message", thread_id, loan_id }` from the
+// backend (see app/services/push.py). We push to the dashboard tab
+// with `?openThread=<id>` and let app/(tabs)/index.tsx open the
+// AIChatSheet pre-targeted at that thread.
+export function usePushTapHandler(): void {
+  const router = useRouter();
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((resp: Notifications.NotificationResponse) => {
+      try {
+        const data = resp?.notification?.request?.content?.data as
+          | { kind?: string; thread_id?: string; loan_id?: string | null }
+          | undefined;
+        if (data?.kind === "ai_chat_message" && data.thread_id) {
+          router.push({
+            pathname: "/(tabs)",
+            params: { openThread: data.thread_id },
+          });
+        }
+      } catch {
+        // best-effort — never crash on a malformed notification
+      }
+    });
+    return () => sub.remove();
+  }, [router]);
 }
 
 export function usePushRegistration(): PushRegistrationState {

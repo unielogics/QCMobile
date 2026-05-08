@@ -2,13 +2,24 @@ import { Pressable, View } from "react-native";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 
-export function Fab({ onPress, icon = "plus" }: { onPress?: () => void; icon?: string }) {
+export function Fab({
+  onPress,
+  icon = "plus",
+  unread = false,
+}: {
+  onPress?: () => void;
+  icon?: string;
+  // When true, render a small red dot in the top-right corner.
+  // Used by the AI-chat FAB on the dashboard to signal unseen
+  // assistant messages.
+  unread?: boolean;
+}) {
   const { t, isDark } = useTheme();
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", right: 16, bottom: 44, zIndex: 40 }}>
       <Pressable
         onPress={onPress}
-        accessibilityLabel="Quick action"
+        accessibilityLabel={unread ? "Quick action — new message" : "Quick action"}
         style={({ pressed }) => ({
           width: 56, height: 56, borderRadius: 18,
           backgroundColor: t.petrol,
@@ -22,6 +33,21 @@ export function Fab({ onPress, icon = "plus" }: { onPress?: () => void; icon?: s
         })}
       >
         <Icon name={icon} size={26} stroke={2.5} color={isDark ? "#06070B" : "#fff"} />
+        {unread ? (
+          <View
+            style={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              width: 12,
+              height: 12,
+              borderRadius: 999,
+              backgroundColor: t.danger,
+              borderWidth: 2,
+              borderColor: t.petrol,
+            }}
+          />
+        ) : null}
       </Pressable>
     </View>
   );
