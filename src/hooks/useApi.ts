@@ -373,13 +373,99 @@ export function useSendAIChatMessage() {
   const qc = useQueryClient();
   const key = useCacheKey();
   return useMutation({
-    mutationFn: ({ threadId, body, loan_id }: { threadId: string; body: string; loan_id?: string | null }) =>
+    mutationFn: ({
+      threadId,
+      body,
+      loan_id,
+      attachment_tokens,
+    }: {
+      threadId: string;
+      body: string;
+      loan_id?: string | null;
+      attachment_tokens?: string[] | null;
+    }) =>
       fetcher<AIChatSendResponse>(`/ai/chat/threads/${threadId}/message`, {
         method: "POST",
-        body: JSON.stringify({ body, loan_id: loan_id ?? null }),
+        body: JSON.stringify({
+          body,
+          loan_id: loan_id ?? null,
+          attachment_tokens: attachment_tokens ?? null,
+        }),
       }),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["aiChatThread", vars.threadId, key] });
+      qc.invalidateQueries({ queryKey: ["aiChatThreads", key] });
+      qc.invalidateQueries({ queryKey: ["documents"] });
+    },
+  });
+}
+
+// Chat-composer paperclip: mints a presigned URL for a file the
+// borrower drops into a loan-scoped chat thread. The next send-msg
+// call (with the returned document_id in `attachment_tokens`)
+// flips the doc RECEIVED, runs vision scan, and lets the AI
+// propose routing in its reply.
+export function useChatAttachmentInit() {
+  const fetcher = useAuthedFetch();
+  return useMutation({
+    mutationFn: async (vars: {
+      threadId: string;
+      file: { uri: string; name: string; mimeType: string };
+    }): Promise<{ document_id: string }> => {
+      const init = await fetcher<{
+        document_id: string;
+        upload_url: string | null;
+        s3_key: string;
+      }>(`/ai/chat/threads/${vars.threadId}/attachments/upload-init`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: vars.file.name,
+          content_type: vars.file.mimeType,
+        }),
+      });
+      if (init.upload_url) {
+        const fileResp = await fetch(vars.file.uri);
+        const blob = await fileResp.blob();
+        const put = await fetch(init.upload_url, {
+          method: "PUT",
+          body: blob,
+          headers: {
+            "Content-Type": vars.file.mimeType,
+            "x-amz-server-side-encryption": "AES256",
+          },
+        });
+        if (!put.ok) throw new Error(`S3 upload failed: ${put.status} ${put.statusText}`);
+      }
+      return { document_id: init.document_id };
+    },
+  });
+}
+
+// Hit by the chat's confirm_document_routing CTA. Relinks an
+// orphan upload to a checklist slot (or merges it into the slot's
+// existing REQUESTED row).
+export function useRouteDocument() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  const key = useCacheKey();
+  return useMutation({
+    mutationFn: ({
+      documentId,
+      checklist_key,
+    }: {
+      documentId: string;
+      checklist_key: string | null;
+    }) =>
+      fetcher(`/documents/${documentId}/route`, {
+        method: "POST",
+        body: JSON.stringify({
+          checklist_key,
+          is_other: checklist_key == null,
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: ["aiChatThread"] });
       qc.invalidateQueries({ queryKey: ["aiChatThreads", key] });
     },
   });

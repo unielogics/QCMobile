@@ -209,11 +209,40 @@ export interface RequiredDocument {
   verified_at: string | null;
   days_since_requested: number | null;
 }
+// CTAs the AI emits via tool-use. The frontend renders a button per
+// action under the assistant bubble; tapping deep-links into the
+// vault upload flow (or an inline confirm endpoint).
+export interface ChatAction {
+  kind:
+    | "upload_document"
+    | "confirm_document_routing"
+    | "complete_property_intake"
+    | "open_calendar_event";
+  label: string;
+  document_id?: string | null;
+  checklist_key?: string | null;
+  calendar_event_id?: string | null;
+  confirm?: boolean;
+}
+
+// Files riding on a chat message. Borrower attaches via the
+// composer paperclip → backend creates an is_other Document, runs
+// vision scan, includes a chip on the persisted user message.
+export interface ChatAttachment {
+  document_id: string;
+  name: string;
+  content_type?: string | null;
+  status?: string | null;
+  suggested_checklist_key?: string | null;
+}
+
 export interface AIChatMessage {
   id: string;
   role: "user" | "assistant";
   body: string;
   created_at: string;
+  actions?: ChatAction[] | null;
+  attachments?: ChatAttachment[] | null;
 }
 export interface AIChatThreadDetail extends AIChatThread {
   messages: AIChatMessage[];

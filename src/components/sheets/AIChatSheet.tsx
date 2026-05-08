@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -28,16 +29,20 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
+import { useRouter } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 import {
   useAIChatThread,
   useAIChatThreads,
+  useChatAttachmentInit,
   useFindOrCreateChatThread,
   useLoans,
+  useRouteDocument,
   useSendAIChatMessage,
 } from "@/hooks/useApi";
-import type { AIChatThread, Loan } from "@/lib/types";
+import type { AIChatThread, ChatAction, ChatAttachment, Loan } from "@/lib/types";
 
 interface Props {
   visible: boolean;
@@ -58,10 +63,13 @@ const STARTER_PROMPTS = [
 
 export function AIChatSheet({ visible, onClose, context, initialThreadId }: Props) {
   const { t } = useTheme();
+  const router = useRouter();
   const { data: loans = [] } = useLoans();
   const { data: threads = [], isLoading: threadsLoading } = useAIChatThreads();
   const findOrCreate = useFindOrCreateChatThread();
   const sendMessage = useSendAIChatMessage();
+  const attachmentInit = useChatAttachmentInit();
+  const routeDocument = useRouteDocument();
 
   // When the caller controls the thread (initialThreadId set), we
   // jump straight into chat. When they don't, we land in the
@@ -70,10 +78,14 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
   const [showList, setShowList] = useState<boolean>(!initialThreadId);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Files staged in the composer (paperclip-uploaded but not yet sent
+  // with a message). Cleared on send / dismiss.
+  const [staged, setStaged] = useState<{ document_id: string; name: string }[]>([]);
   const scrollRef = useRef<ScrollView | null>(null);
 
   const activeThreadQ = useAIChatThread(activeThreadId);
   const messages = activeThreadQ.data?.messages ?? [];
+  const activeThreadLoanId = activeThreadQ.data?.loan_id ?? null;
 
   // Derived list — exactly one Account row + one row per loan.
   // Threads in the DB that don't match (orphans, dupes pre-0018)
@@ -129,7 +141,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
 
   const send = async (raw: string) => {
     const text = raw.trim();
-    if (!text || sendMessage.isPending) return;
+    if ((!text && staged.length === 0) || sendMessage.isPending) return;
     setError(null);
     try {
       let threadId = activeThreadId;
@@ -140,10 +152,99 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
         threadId = t.id;
         setActiveThreadId(threadId);
       }
-      await sendMessage.mutateAsync({ threadId, body: text });
+      const tokens = staged.map((s) => s.document_id);
+      await sendMessage.mutateAsync({
+        threadId,
+        body: text,
+        attachment_tokens: tokens.length > 0 ? tokens : null,
+      });
       setInput("");
+      setStaged([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "AI failed to respond.");
+    }
+  };
+
+  // Pick a file from the system picker and stage it for the next
+  // send. Only meaningful in loan-scoped threads — backend rejects
+  // attachments on account-wide threads.
+  const onAttachPress = async () => {
+    if (!activeThreadId || !activeThreadLoanId) {
+      Alert.alert("Open a loan thread", "Attachments only work inside a loan-specific conversation.");
+      return;
+    }
+    if (attachmentInit.isPending) return;
+    setError(null);
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf", "image/*"],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (picked.canceled || picked.assets.length === 0) return;
+      const file = picked.assets[0];
+      const result = await attachmentInit.mutateAsync({
+        threadId: activeThreadId,
+        file: {
+          uri: file.uri,
+          name: file.name ?? "attachment",
+          mimeType: file.mimeType ?? "application/octet-stream",
+        },
+      });
+      setStaged((prev) => [...prev, { document_id: result.document_id, name: file.name ?? "attachment" }]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't attach the file.");
+    }
+  };
+
+  const removeStaged = (docId: string) => {
+    setStaged((prev) => prev.filter((s) => s.document_id !== docId));
+  };
+
+  // Handle a CTA tap on an assistant bubble.
+  const onAction = async (action: ChatAction) => {
+    setError(null);
+    try {
+      switch (action.kind) {
+        case "upload_document": {
+          // Deep-link into the vault tab with the doc pre-targeted.
+          // Vault's `useEffect` reads ?fulfill and fires the upload
+          // sheet pre-bound (no property + checklist picker).
+          if (action.document_id) {
+            onClose();
+            router.push({
+              pathname: "/(tabs)/vault",
+              params: { fulfill: action.document_id },
+            });
+            return;
+          }
+          // No document_id — just bounce to the vault tab and let
+          // the user pick.
+          onClose();
+          router.push("/(tabs)/vault");
+          return;
+        }
+        case "confirm_document_routing": {
+          if (!action.document_id) return;
+          await routeDocument.mutateAsync({
+            documentId: action.document_id,
+            checklist_key: action.checklist_key ?? null,
+          });
+          // Refetch the thread so the AI's confirmation message lands.
+          activeThreadQ.refetch();
+          return;
+        }
+        case "complete_property_intake": {
+          activeThreadQ.refetch();
+          return;
+        }
+        case "open_calendar_event": {
+          // No-op for v1 — calendar deep-links land in a follow-up.
+          return;
+        }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Action failed.");
     }
   };
 
@@ -351,18 +452,44 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                       style={{
                         alignSelf: m.role === "user" ? "flex-end" : "flex-start",
                         maxWidth: "86%",
-                        padding: 11,
-                        borderRadius: 14,
-                        backgroundColor: m.role === "user" ? t.brandSoft : t.surface2,
+                        gap: 6,
                       }}
                     >
-                      <Text style={{
-                        fontSize: 13,
-                        color: m.role === "user" ? t.brand : t.ink,
-                        lineHeight: 18,
-                      }}>
-                        {m.body}
-                      </Text>
+                      <View
+                        style={{
+                          padding: 11,
+                          borderRadius: 14,
+                          backgroundColor: m.role === "user" ? t.brandSoft : t.surface2,
+                        }}
+                      >
+                        <Text style={{
+                          fontSize: 13,
+                          color: m.role === "user" ? t.brand : t.ink,
+                          lineHeight: 18,
+                        }}>
+                          {m.body}
+                        </Text>
+                      </View>
+                      {m.attachments && m.attachments.length > 0 ? (
+                        <View style={{ flexDirection: "column", gap: 4 }}>
+                          {m.attachments.map((att) => (
+                            <AttachmentChip key={att.document_id} t={t} attachment={att} />
+                          ))}
+                        </View>
+                      ) : null}
+                      {m.role === "assistant" && m.actions && m.actions.length > 0 ? (
+                        <View style={{ flexDirection: "column", gap: 6, marginTop: 2 }}>
+                          {m.actions.map((a, idx) => (
+                            <ActionButton
+                              key={idx}
+                              t={t}
+                              action={a}
+                              onPress={() => onAction(a)}
+                              busy={routeDocument.isPending}
+                            />
+                          ))}
+                        </View>
+                      ) : null}
                     </View>
                   ))
                 )}
@@ -379,6 +506,43 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                 ) : null}
               </ScrollView>
 
+              {/* Staged attachments preview — chips above the composer */}
+              {staged.length > 0 ? (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: 6,
+                    paddingHorizontal: 12,
+                    paddingTop: 6,
+                    backgroundColor: t.bg,
+                  }}
+                >
+                  {staged.map((s) => (
+                    <View
+                      key={s.document_id}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        backgroundColor: t.petrolSoft,
+                      }}
+                    >
+                      <Icon name="doc" size={12} color={t.petrol} />
+                      <Text style={{ fontSize: 11.5, color: t.petrol, fontWeight: "600", maxWidth: 170 }} numberOfLines={1}>
+                        {s.name}
+                      </Text>
+                      <Pressable onPress={() => removeStaged(s.document_id)} hitSlop={8} accessibilityLabel="Remove attachment">
+                        <Icon name="x" size={11} color={t.petrol} />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
               {/* Composer */}
               <View
                 style={{
@@ -393,10 +557,29 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                   backgroundColor: t.bg,
                 }}
               >
+                {/* Paperclip — only meaningful in loan-scoped threads */}
+                <Pressable
+                  onPress={onAttachPress}
+                  disabled={!activeThreadLoanId || attachmentInit.isPending}
+                  accessibilityLabel="Attach file"
+                  hitSlop={6}
+                  style={({ pressed }) => ({
+                    width: 40, height: 40, borderRadius: 20,
+                    backgroundColor: pressed ? t.surface2 : "transparent",
+                    alignItems: "center", justifyContent: "center",
+                    opacity: !activeThreadLoanId ? 0.4 : 1,
+                  })}
+                >
+                  {attachmentInit.isPending ? (
+                    <ActivityIndicator size="small" color={t.ink3} />
+                  ) : (
+                    <Icon name="paperclip" size={18} color={activeThreadLoanId ? t.ink2 : t.ink4} />
+                  )}
+                </Pressable>
                 <TextInput
                   value={input}
                   onChangeText={setInput}
-                  placeholder="Message…"
+                  placeholder={staged.length > 0 ? "Add a note (optional)…" : "Message…"}
                   placeholderTextColor={t.ink4}
                   editable={!sendMessage.isPending}
                   onSubmitEditing={() => send(input)}
@@ -418,16 +601,16 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                 />
                 <Pressable
                   onPress={() => send(input)}
-                  disabled={!input.trim() || sendMessage.isPending}
+                  disabled={(!input.trim() && staged.length === 0) || sendMessage.isPending}
                   accessibilityLabel="Send"
                   style={({ pressed }) => ({
                     width: 40, height: 40, borderRadius: 20,
-                    backgroundColor: input.trim() && !sendMessage.isPending ? t.petrol : t.chip,
+                    backgroundColor: (input.trim() || staged.length > 0) && !sendMessage.isPending ? t.petrol : t.chip,
                     alignItems: "center", justifyContent: "center",
                     opacity: pressed ? 0.85 : 1,
                   })}
                 >
-                  <Icon name="arrowR" size={18} color={input.trim() && !sendMessage.isPending ? "#fff" : t.ink4} />
+                  <Icon name="arrowR" size={18} color={(input.trim() || staged.length > 0) && !sendMessage.isPending ? "#fff" : t.ink4} />
                 </Pressable>
               </View>
             </>
@@ -437,6 +620,99 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
     </Modal>
   );
 }
+
+function ActionButton({
+  t,
+  action,
+  onPress,
+  busy,
+}: {
+  t: ReturnType<typeof useTheme>["t"];
+  action: ChatAction;
+  onPress: () => void;
+  busy: boolean;
+}) {
+  const isPrimary = action.confirm !== false;
+  const iconName =
+    action.kind === "upload_document"
+      ? "upload"
+      : action.kind === "confirm_document_routing"
+        ? (isPrimary ? "check" : "x")
+        : action.kind === "complete_property_intake"
+          ? "check"
+          : "chevR";
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={busy}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 14,
+        backgroundColor: isPrimary ? t.petrol : t.surface2,
+        borderWidth: isPrimary ? 0 : 1,
+        borderColor: t.line,
+        opacity: pressed ? 0.85 : busy ? 0.6 : 1,
+      })}
+    >
+      <Icon name={iconName as any} size={14} color={isPrimary ? "#fff" : t.ink2} />
+      <Text
+        numberOfLines={1}
+        style={{
+          fontSize: 12.5,
+          fontWeight: "700",
+          color: isPrimary ? "#fff" : t.ink,
+          letterSpacing: -0.1,
+        }}
+      >
+        {action.label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function AttachmentChip({
+  t,
+  attachment,
+}: {
+  t: ReturnType<typeof useTheme>["t"];
+  attachment: ChatAttachment;
+}) {
+  const status = attachment.status ?? "received";
+  const statusColor =
+    status === "verified"
+      ? t.profit
+      : status === "flagged"
+        ? t.warn
+        : t.ink3;
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 12,
+        backgroundColor: t.surface2,
+        borderWidth: 1,
+        borderColor: t.line,
+      }}
+    >
+      <Icon name="doc" size={12} color={t.ink2} />
+      <Text style={{ fontSize: 11.5, color: t.ink, fontWeight: "600", flexShrink: 1 }} numberOfLines={1}>
+        {attachment.name}
+      </Text>
+      <Text style={{ fontSize: 10.5, color: statusColor, textTransform: "uppercase", letterSpacing: 0.6 }}>
+        {status}
+      </Text>
+    </View>
+  );
+}
+
 
 function ConversationRow({
   t,
