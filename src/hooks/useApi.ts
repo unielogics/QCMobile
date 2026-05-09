@@ -1001,3 +1001,81 @@ export function useSendListingAgreement() {
 export function useMarkClientFinanceReady() {
   return useRealtorAction((id) => `/clients/${id}/mark-finance-ready`);
 }
+
+
+// ── AI Plan hooks (Phase 2 mobile parity) ──────────────────────────
+
+export interface ClientAIPlanItem {
+  requirement_key: string;
+  label: string;
+  category: string;
+  required_level: string;
+  blocks_stage: string | null;
+  visibility: string[];
+  can_agent_override: boolean;
+  status: string;
+  source: string;
+  display_order: number;
+  playbook_name: string;
+}
+
+export interface ClientAIPlanRead {
+  client_id: string;
+  loan_id: string | null;
+  current_phase: string;
+  custom_instructions: string | null;
+  required_items: ClientAIPlanItem[];
+  waived_items: ClientAIPlanItem[];
+  next_best_question: string | null;
+  next_best_action: { kind: string; requirement_key?: string } | null;
+  readiness_score: number | null;
+  computed_at: string;
+}
+
+export function useClientAIPlan(clientId: string | null | undefined, loanId?: string | null) {
+  const fetcher = useAuthedFetch();
+  return useQuery({
+    queryKey: ["clientAIPlan", clientId, loanId ?? null],
+    queryFn: () =>
+      fetcher<ClientAIPlanRead>(
+        `/clients/${clientId}/ai-plan${loanId ? `?loan_id=${loanId}` : ""}`,
+      ),
+    enabled: !!clientId,
+  });
+}
+
+export function usePatchClientAIPlan() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, loanId, ...body }: {
+      clientId: string;
+      loanId?: string | null;
+      custom_instructions?: string | null;
+      waive_keys?: string[];
+      unwaive_keys?: string[];
+    }) =>
+      fetcher<ClientAIPlanRead>(
+        `/clients/${clientId}/ai-plan${loanId ? `?loan_id=${loanId}` : ""}`,
+        { method: "PATCH", body: JSON.stringify(body) },
+      ),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["clientAIPlan", vars.clientId] });
+    },
+  });
+}
+
+export interface AgentPlaybook {
+  playbook_type: string;
+  rules: Record<string, unknown>;
+  platform_requirements: Record<string, unknown>[];
+  agent_requirements: Record<string, unknown>[];
+}
+
+export function useAgentPlaybook(playbookType: "buyer" | "seller" | "cadence") {
+  const fetcher = useAuthedFetch();
+  return useQuery({
+    queryKey: ["agentPlaybook", playbookType],
+    queryFn: () => fetcher<AgentPlaybook>(`/me/ai-playbook/${playbookType}`),
+  });
+}

@@ -8,6 +8,7 @@ import { Icon } from "@/design-system/Icon";
 import { LoanSnapshotCard } from "@/components/LoanSnapshotCard";
 import { DocumentRequestList } from "@/components/DocumentRequestList";
 import { RealtorReadinessCard } from "@/components/RealtorReadinessCard";
+import { ClientAIPlanCard } from "@/components/ClientAIPlanCard";
 import { useClient, useDocuments, useEngagement, useFindOrCreateChatThread, useLoans, useRequestPrequalification, useStartFunding, useUpdateClientStage } from "@/hooks/useApi";
 import { ClientStageOptions } from "@/lib/enums.generated";
 import type { ClientStage } from "@/lib/enums.generated";
@@ -195,6 +196,12 @@ export default function AgentClientRoute() {
             </View>
           </View>
         </Card>
+
+        {/* Active AI Plan card (alembic 0032). Trumps the legacy
+            missing_facts walk; renders the playbook-resolved active
+            list for THIS client + lets the agent set per-client
+            custom instructions for the AI. */}
+        <ClientAIPlanCard clientId={client.id} loanId={null} />
 
         {/* Realtor Client Intelligence Profile (alembic 0030). Renders
             when the Realtor AI has captured at least the client_type

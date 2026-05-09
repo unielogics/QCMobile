@@ -56,6 +56,31 @@ export default function AgentSettingsRoute() {
           </Card>
         ) : null}
 
+        <Pressable
+          onPress={() => router.push("/agent/settings/ai-assistant" as never)}
+          style={({ pressed }) => ({
+            backgroundColor: t.surface,
+            borderColor: t.line,
+            borderWidth: 1,
+            borderRadius: 12,
+            padding: 16,
+            opacity: pressed ? 0.85 : 1,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+          })}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 14, fontWeight: "700", color: t.ink, marginBottom: 2 }}>
+              AI Assistant
+            </Text>
+            <Text style={{ fontSize: 12, color: t.ink3, lineHeight: 16 }}>
+              Buyer / seller playbooks · cadence · handoff gates · message style.
+            </Text>
+          </View>
+          <Icon name="chevron-right" size={18} color={t.ink3} />
+        </Pressable>
+
         <View>
           <SectionLabel>Lead handling</SectionLabel>
           <Card pad={16}>
