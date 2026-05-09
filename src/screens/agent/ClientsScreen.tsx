@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, type Href } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Avatar, Card, Pill } from "@/design-system/primitives";
@@ -17,9 +17,12 @@ const STAGE_LABEL: Record<ClientStage, string> = Object.fromEntries(
 export function ClientsScreen() {
   const { t } = useTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { data: clients = [], isLoading } = useClients("mine");
   const [query, setQuery] = useState("");
   const [stage, setStage] = useState<ClientStage | null>(null);
+  const activeClients = clients.filter((c) => c.stage !== "lead").length;
+  const leadClients = clients.filter((c) => c.stage === "lead").length;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -35,6 +38,19 @@ export function ClientsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
       <TopBar title="Clients" />
       <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 12 }}>
+        <Card pad={16} style={{ borderRadius: 16 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: t.petrolSoft, alignItems: "center", justifyContent: "center" }}>
+              <Icon name="user" size={18} color={t.petrol} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ fontSize: 18, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }}>Client book</Text>
+              <Text style={{ fontSize: 12, color: t.ink3, marginTop: 3 }} numberOfLines={1}>
+                {clients.length} total · {activeClients} active · {leadClients} new leads
+              </Text>
+            </View>
+          </View>
+        </Card>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: t.surface2, borderRadius: 10, paddingHorizontal: 12 }}>
           <Icon name="search" size={16} color={t.ink3} />
           <TextInput
@@ -59,7 +75,7 @@ export function ClientsScreen() {
         />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 96 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 104 + insets.bottom }}>
         {isLoading && clients.length === 0 ? (
           <Card pad={18}><Text style={{ fontSize: 13, color: t.ink3 }}>Loading…</Text></Card>
         ) : filtered.length === 0 ? (
@@ -102,7 +118,7 @@ export function ClientsScreen() {
       <Pressable
         onPress={() => router.push("/agent/client/new" as Href)}
         style={({ pressed }) => ({
-          position: "absolute", right: 18, bottom: 24,
+          position: "absolute", right: 18, bottom: 20 + insets.bottom,
           backgroundColor: t.brand,
           paddingVertical: 13, paddingHorizontal: 18,
           borderRadius: 999,
@@ -112,7 +128,7 @@ export function ClientsScreen() {
         })}
       >
         <Icon name="plus" size={16} color="#fff" />
-        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>Add Lead</Text>
+        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>New client</Text>
       </Pressable>
     </SafeAreaView>
   );

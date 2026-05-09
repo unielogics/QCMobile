@@ -78,7 +78,9 @@ export default function AgentSettingsRoute() {
               Buyer / seller playbooks · cadence · handoff gates · message style.
             </Text>
           </View>
-          <Icon name="chevron-right" size={18} color={t.ink3} />
+          {/* `chevron-right` isn't a registered icon name; use `chevR`
+              so the drill-in affordance actually renders. */}
+          <Icon name="chevR" size={18} color={t.ink3} />
         </Pressable>
 
         <View>

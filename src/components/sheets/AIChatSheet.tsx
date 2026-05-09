@@ -21,6 +21,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -316,6 +317,33 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
     ? `${activeThreadQ.data.loan_deal_id}${activeThreadQ.data.loan_address ? ` · ${activeThreadQ.data.loan_address}` : ""}`
     : (context ?? "Cross-loan account context");
 
+  // Swipe-from-left-edge → back. Only fires inside the chat view; the
+  // gesture must start within 30px of the left edge and travel >60px
+  // right with horizontal-dominant motion so it doesn't fight
+  // ScrollView's vertical scroll or in-message taps.
+  const swipeBack = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (e, g) => {
+          if (showList) return false;
+          const startX = e.nativeEvent.pageX - g.dx;
+          return (
+            startX < 30 &&
+            g.dx > 10 &&
+            Math.abs(g.dx) > Math.abs(g.dy) * 1.5
+          );
+        },
+        onPanResponderRelease: (_, g) => {
+          if (g.dx > 60) {
+            if (!showList && !initialThreadId) setShowList(true);
+            else onClose();
+          }
+        },
+      }),
+    [showList, initialThreadId, onClose]
+  );
+
   return (
     <Modal
       // `transparent` (matching the rest of the app's sheets) so
@@ -371,8 +399,9 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                 alignItems: "center", justifyContent: "center",
               })}
             >
+              {/* Use arrowL — chevL is not in the icon registry. */}
               <Icon
-                name={!showList && !initialThreadId ? "chevL" : "x"}
+                name={!showList && !initialThreadId ? "arrowL" : "x"}
                 size={18}
                 color={t.ink2}
               />
@@ -472,7 +501,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
               ) : null}
             </ScrollView>
           ) : (
-            <>
+            <View style={{ flex: 1 }} {...swipeBack.panHandlers}>
               {/* Thread — fills all the space between header and composer */}
               <ScrollView
                 ref={scrollRef}
@@ -678,7 +707,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                   <Icon name="arrowR" size={18} color={(input.trim() || staged.length > 0) && !sendMessage.isPending ? "#fff" : t.ink4} />
                 </Pressable>
               </View>
-            </>
+            </View>
           )}
         </KeyboardAvoidingView>
       </View>

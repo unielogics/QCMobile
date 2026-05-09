@@ -28,6 +28,13 @@ export interface QCTokens {
   dangerBg: string;
   chip: string;
   spark: string;
+  // Aliases used by newer agent-side files (ai-assistant settings,
+  // ClientAIPlanCard, RealtorReadinessCard) that were authored against
+  // a desktop-style palette. Mapped to the existing tokens so those
+  // screens render with proper colors instead of black/transparent.
+  muted: string;
+  border: string;
+  accent: string;
 }
 
 export const QC_TOKENS: Record<ThemeMode, QCTokens> = {
@@ -57,6 +64,9 @@ export const QC_TOKENS: Record<ThemeMode, QCTokens> = {
     dangerBg: "#F4DAD8",
     chip: "#EFEAE0",
     spark: "#0B1F3A",
+    muted: "#6B7891",   // = ink3
+    border: "rgba(11, 22, 41, 0.08)", // = line
+    accent: "#0F5F66",  // = petrol
   },
   dark: {
     bg: "#06070B",
@@ -84,6 +94,9 @@ export const QC_TOKENS: Record<ThemeMode, QCTokens> = {
     dangerBg: "rgba(248,113,113,0.13)",
     chip: "rgba(255,255,255,0.06)",
     spark: "#5EEAD4",
+    muted: "#8892A6",   // = ink3
+    border: "rgba(255,255,255,0.07)", // = line
+    accent: "#22D3C7",  // = petrol
   },
 };
 

@@ -33,7 +33,7 @@ import type {
   ListScope,
   NextAction,
 } from "@/lib/types";
-import type { ClientStage } from "@/lib/enums.generated";
+import type { ClientStage, LoanPurpose } from "@/lib/enums.generated";
 
 class NotFoundError extends Error {
   constructor(message: string) {
@@ -211,11 +211,40 @@ export function useRecalc() {
   const fetcher = useAuthedFetch();
   return useMutation({
     mutationFn: ({
-      loanId, discount_points, base_rate, loan_amount,
-    }: { loanId: string; discount_points: number; base_rate?: number; loan_amount?: number }) =>
+      loanId, discount_points, base_rate, loan_amount, annual_taxes, annual_insurance, monthly_hoa, ltv, purpose, arv, brv, rehab_budget, payoff, ltv_tier_cap,
+    }: {
+      loanId: string;
+      discount_points: number;
+      base_rate?: number;
+      loan_amount?: number;
+      annual_taxes?: number;
+      annual_insurance?: number;
+      monthly_hoa?: number;
+      ltv?: number;
+      purpose?: LoanPurpose | null;
+      arv?: number | null;
+      brv?: number | null;
+      rehab_budget?: number | null;
+      payoff?: number | null;
+      ltv_tier_cap?: number | null;
+    }) =>
       fetcher<RecalcResponse>(`/loans/${loanId}/recalc`, {
         method: "POST",
-        body: JSON.stringify({ discount_points, base_rate, loan_amount }),
+        body: JSON.stringify({
+          discount_points,
+          base_rate,
+          loan_amount,
+          annual_taxes,
+          annual_insurance,
+          monthly_hoa,
+          ltv,
+          purpose,
+          arv,
+          brv,
+          rehab_budget,
+          payoff,
+          ltv_tier_cap,
+        }),
       }),
   });
 }

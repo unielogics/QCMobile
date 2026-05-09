@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AppState, type AppStateStatus } from "react-native";
+import { AppState, LogBox, type AppStateStatus } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
@@ -11,6 +11,14 @@ import {
   useRegisterPushToken,
   usePushTapHandler,
 } from "@/lib/notifications";
+
+// Dev-client race: expo-dev-launcher calls activateKeepAwake during
+// cold launch before MainActivity is registered with the Expo
+// activity provider, so the first call throws
+// CurrentActivityNotFoundException → LogBox red-screens it on every
+// boot. Production builds don't hit this. Suppress only this exact
+// message so other warnings still surface.
+LogBox.ignoreLogs([/Unable to activate keep awake/]);
 
 // React Query's `refetchOnWindowFocus` does nothing in React Native unless
 // focusManager is told what counts as "focus". Hook it up to AppState so

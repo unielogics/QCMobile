@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Alert, Linking, Pressable, ScrollView, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Avatar, Card, Pill, SectionLabel } from "@/design-system/primitives";
@@ -12,6 +12,7 @@ import { ClientAIPlanCard } from "@/components/ClientAIPlanCard";
 import { useClient, useDocuments, useEngagement, useFindOrCreateChatThread, useLoans, useRequestPrequalification, useStartFunding, useUpdateClientStage } from "@/hooks/useApi";
 import { ClientStageOptions } from "@/lib/enums.generated";
 import type { ClientStage } from "@/lib/enums.generated";
+import type { Client } from "@/lib/types";
 
 const STAGE_LABEL: Record<ClientStage, string> = Object.fromEntries(
   ClientStageOptions.map((o) => [o.value, o.label])
@@ -20,6 +21,7 @@ const STAGE_LABEL: Record<ClientStage, string> = Object.fromEntries(
 export default function AgentClientRoute() {
   const { t } = useTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: client } = useClient(id);
   const { data: loans = [] } = useLoans("mine");
@@ -34,6 +36,7 @@ export default function AgentClientRoute() {
   const activeLoan = useMemo(() => clientLoans.find((l) => l.stage !== "funded") ?? clientLoans[0] ?? null, [clientLoans]);
   const { data: docs = [] } = useDocuments(activeLoan?.id);
   const pendingDocs = docs.filter((d) => d.status === "requested" || d.status === "pending" || d.status === "flagged");
+  const verifiedDocs = docs.filter((d) => d.status === "verified").length;
 
   if (!client) {
     return (
@@ -167,6 +170,23 @@ export default function AgentClientRoute() {
     );
   };
 
+  const primaryAction =
+    client.stage === "lead" && client.lead_promotion_status !== "agent_requested_review"
+      ? {
+          label: "Ready for lending",
+          icon: "bolt" as const,
+          onPress: onRequestPrequal,
+          loading: busy === "prequal",
+        }
+      : client.stage === "verified"
+        ? {
+            label: "Start funding",
+            icon: "bolt" as const,
+            onPress: onStartFunding,
+            loading: busy === "funding",
+          }
+        : null;
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, gap: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
@@ -176,7 +196,7 @@ export default function AgentClientRoute() {
         <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink, flex: 1 }}>Client</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 120 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 186 + insets.bottom }}>
         <Card pad={18}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
             <Avatar label={initials} color={client.avatar_color ?? undefined} size={52} />
@@ -202,6 +222,14 @@ export default function AgentClientRoute() {
             list for THIS client + lets the agent set per-client
             custom instructions for the AI. */}
         <ClientAIPlanCard clientId={client.id} loanId={null} />
+
+        <AgentRelationshipWorkspace
+          client={client}
+          loanCount={clientLoans.length}
+          activeLoanCount={clientLoans.filter((l) => l.stage !== "funded").length}
+          verifiedDocs={verifiedDocs}
+          totalDocs={docs.length}
+        />
 
         {/* Realtor Client Intelligence Profile (alembic 0030). Renders
             when the Realtor AI has captured at least the client_type
@@ -256,31 +284,42 @@ export default function AgentClientRoute() {
         ) : null}
       </ScrollView>
 
-      <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: 12, paddingBottom: 22, backgroundColor: t.surface, borderTopColor: t.line, borderTopWidth: 1 }}>
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <ActionButton label="Call" icon="bolt" onPress={onCall} disabled={!client.phone} />
-          <ActionButton label="Message" icon="chat" onPress={onMessage} loading={busy === "message"} />
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          paddingHorizontal: 14,
+          paddingTop: 12,
+          paddingBottom: 14 + insets.bottom,
+          backgroundColor: t.surface,
+          borderTopColor: t.line,
+          borderTopWidth: 1,
+          shadowColor: "#0B1629",
+          shadowOpacity: 0.08,
+          shadowRadius: 14,
+          shadowOffset: { width: 0, height: -4 },
+        }}
+      >
+        {primaryAction ? (
+          <ActionButton
+            label={primaryAction.label}
+            icon={primaryAction.icon}
+            onPress={primaryAction.onPress}
+            loading={primaryAction.loading}
+            primary
+            wide
+          />
+        ) : null}
+        <View style={{ flexDirection: "row", gap: 8, marginTop: primaryAction ? 10 : 0 }}>
+          <ActionButton label="Call" icon="bolt" onPress={onCall} disabled={!client.phone} compact />
+          <ActionButton label="Message" icon="chat" onPress={onMessage} loading={busy === "message"} compact />
           {client.stage === "lead" ? (
-            <ActionButton label="Contacted" icon="check" onPress={onMarkContacted} loading={busy === "contacted"} />
-          ) : null}
-          {/* Lead-stage handoff to funding team. Hidden once already
-              requested so the agent doesn't double-fire. The desktop
-              shows a "Funding review requested" pill in the same
-              state — mobile keeps it simpler by hiding the button. */}
-          {client.stage === "lead" && client.lead_promotion_status !== "agent_requested_review" ? (
-            <ActionButton
-              label="Ready for lending"
-              icon="bolt"
-              primary
-              onPress={onRequestPrequal}
-              loading={busy === "prequal"}
-            />
-          ) : null}
-          {client.stage === "verified" ? (
-            <ActionButton label="Start funding" icon="bolt" primary onPress={onStartFunding} loading={busy === "funding"} />
+            <ActionButton label="Contacted" icon="check" onPress={onMarkContacted} loading={busy === "contacted"} compact />
           ) : null}
           {activeLoan ? (
-            <ActionButton label="Docs" icon="vault" onPress={onRequestDocs} />
+            <ActionButton label="Docs" icon="vault" onPress={onRequestDocs} compact />
           ) : null}
         </View>
       </View>
@@ -288,8 +327,93 @@ export default function AgentClientRoute() {
   );
 }
 
+function AgentRelationshipWorkspace({
+  client,
+  loanCount,
+  activeLoanCount,
+  verifiedDocs,
+  totalDocs,
+}: {
+  client: Client;
+  loanCount: number;
+  activeLoanCount: number;
+  verifiedDocs: number;
+  totalDocs: number;
+}) {
+  const { t } = useTheme();
+  const side = client.client_type ?? "buyer";
+  const isSeller = side === "seller";
+  const stage = client.stage ?? "lead";
+  const actions = isSeller
+    ? [
+        stage === "lead" ? "Confirm listing timeline and target net." : "Update seller timeline after each funding milestone.",
+        totalDocs === 0 ? "Add payoff, property facts, and seller-side docs." : "Review seller docs for missing transaction context.",
+        activeLoanCount === 0 ? "Qualify buyer financing path before handoff." : "Coordinate offer and funding conditions.",
+      ]
+    : [
+        client.fico ? "Confirm buy box, budget, and close date." : "Ask client to complete credit readiness.",
+        totalDocs === 0 ? "Collect intake, bank statements, entity docs, and property facts." : "Review received docs before handoff.",
+        activeLoanCount === 0 ? "Move to lending once verified." : "Coordinate borrower conditions with funding updates.",
+      ];
+
+  return (
+    <Card pad={16}>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <View style={{ flex: 1 }}>
+          <SectionLabel>Agent relationship file</SectionLabel>
+          <Text style={{ fontSize: 17, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }}>
+            {isSeller ? "Seller workflow" : "Buyer workflow"}
+          </Text>
+          <Text style={{ fontSize: 12, color: t.ink3, marginTop: 4, lineHeight: 17 }}>
+            Agent-owned relationship work stays here. Funding criteria and underwriting stay inside the funding file.
+          </Text>
+        </View>
+        <Pill bg={isSeller ? t.warnBg : t.brandSoft} color={isSeller ? t.warn : t.brand}>
+          {isSeller ? "Seller" : "Buyer"}
+        </Pill>
+      </View>
+
+      <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
+        <MiniStat label="Files" value={activeLoanCount ? `${activeLoanCount}/${loanCount}` : "None"} />
+        <MiniStat label="Docs" value={`${verifiedDocs}/${totalDocs || 0}`} />
+        <MiniStat label="FICO" value={client.fico ? String(client.fico) : "New"} />
+      </View>
+
+      <View style={{ gap: 8, marginTop: 14 }}>
+        {actions.map((action, index) => (
+          <View key={action} style={{ flexDirection: "row", gap: 9, alignItems: "flex-start" }}>
+            <View
+              style={{
+                width: 21,
+                height: 21,
+                borderRadius: 999,
+                backgroundColor: index === 0 ? t.petrolSoft : t.surface2,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ fontSize: 10, color: index === 0 ? t.petrol : t.ink3, fontWeight: "800" }}>{index + 1}</Text>
+            </View>
+            <Text style={{ flex: 1, fontSize: 12.5, lineHeight: 18, color: t.ink2 }}>{action}</Text>
+          </View>
+        ))}
+      </View>
+    </Card>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  const { t } = useTheme();
+  return (
+    <View style={{ flex: 1, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: t.line, backgroundColor: t.surface2 }}>
+      <Text style={{ fontSize: 10, color: t.ink3, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" }}>{label}</Text>
+      <Text style={{ fontSize: 17, color: t.ink, fontWeight: "800", marginTop: 4 }}>{value}</Text>
+    </View>
+  );
+}
+
 function ActionButton({
-  label, icon, onPress, primary, loading, disabled,
+  label, icon, onPress, primary, loading, disabled, wide, compact,
 }: {
   label: string;
   icon: "bolt" | "chat" | "check" | "vault";
@@ -297,6 +421,8 @@ function ActionButton({
   primary?: boolean;
   loading?: boolean;
   disabled?: boolean;
+  wide?: boolean;
+  compact?: boolean;
 }) {
   const { t } = useTheme();
   const bg = primary ? t.brand : t.surface2;
@@ -307,16 +433,25 @@ function ActionButton({
       onPress={onPress}
       disabled={loading || disabled}
       style={({ pressed }) => ({
-        flex: 1,
-        paddingVertical: 11, paddingHorizontal: 8,
-        borderRadius: 10,
+        flex: wide ? undefined : 1,
+        minWidth: compact ? 0 : undefined,
+        paddingVertical: wide ? 13 : 10,
+        paddingHorizontal: compact ? 8 : 12,
+        borderRadius: wide ? 12 : 10,
         backgroundColor: bg, borderColor, borderWidth: 1,
-        alignItems: "center", gap: 4, flexDirection: "row", justifyContent: "center",
+        alignItems: "center", gap: compact ? 5 : 7, flexDirection: "row", justifyContent: "center",
         opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
       })}
     >
       <Icon name={icon} size={14} color={fg} />
-      <Text style={{ fontSize: 12, fontWeight: "700", color: fg }}>{label}</Text>
+      <Text
+        style={{ fontSize: compact ? 11 : 13, fontWeight: "800", color: fg, textAlign: "center" }}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.82}
+      >
+        {loading ? "Working" : label}
+      </Text>
     </Pressable>
   );
 }

@@ -2,7 +2,7 @@
 
 import type {
   AITaskPriority, AITaskSource, AITaskStatus, BrokerTier, CalendarEventKind,
-  ClientStage, DocStatus, LoanStage, LoanType, MessageFrom, PropertyType, Role,
+  ClientStage, DocStatus, LoanPurpose, LoanStage, LoanType, MessageFrom, PropertyType, Role,
 } from "./enums.generated";
 
 export type ClientType = "buyer" | "seller";
@@ -122,6 +122,7 @@ export interface Loan {
   city: string | null;
   property_type: PropertyType;
   type: LoanType;
+  purpose: LoanPurpose | null;
   stage: LoanStage;
   amount: number;
   ltv: number | null;
@@ -162,6 +163,20 @@ export interface RecalcResponse {
   cash_to_close_pricing: number;
   hud_total: number;
   warnings: { code: string; message: string; severity: string }[];
+  loan_amount?: number | null;
+  sizing?: {
+    loan_amount: number;
+    max_allowed: number;
+    binding_constraint: string;
+    clamped: boolean;
+    ltv: number | null;
+    ltc: number | null;
+    arv_ltv: number | null;
+    effective_ltv_cap: number | null;
+    total_cost: number | null;
+    cash_to_borrower: number | null;
+    cash_to_close: number | null;
+  } | null;
 }
 
 export interface CreditPullStatus {

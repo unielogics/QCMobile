@@ -3,12 +3,12 @@ import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-nativ
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
-import { Card, SectionLabel } from "@/design-system/primitives";
+import { Card, Pill, SectionLabel } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
-import { LoanSnapshotCard } from "@/components/LoanSnapshotCard";
 import { DocumentRequestList } from "@/components/DocumentRequestList";
 import { DealHealthPill } from "@/components/agent/DealHealthPill";
 import { AIPromptPicker } from "@/components/agent/AIPromptPicker";
+import { QC_FMT } from "@/design-system/tokens";
 import {
   useAIChatThread,
   useDocuments,
@@ -17,16 +17,21 @@ import {
   useLoanActivity,
   useSendAIChatMessage,
 } from "@/hooks/useApi";
+import { LoanStageOptions, type LoanStage } from "@/lib/enums.generated";
+import type { Activity, Document, Loan } from "@/lib/types";
 
-type Tab = "snapshot" | "docs" | "activity" | "messages" | "ai";
+type Tab = "snapshot" | "docs" | "activity" | "messages";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "snapshot", label: "Snapshot" },
   { value: "docs", label: "Docs" },
   { value: "activity", label: "Activity" },
   { value: "messages", label: "Messages" },
-  { value: "ai", label: "AI" },
 ];
+
+const STAGE_LABEL: Record<LoanStage, string> = Object.fromEntries(
+  LoanStageOptions.map((o) => [o.value, o.label])
+) as Record<LoanStage, string>;
 
 export default function AgentLoanRoute() {
   const { t } = useTheme();
@@ -88,10 +93,16 @@ export default function AgentLoanRoute() {
 
       {tab === "snapshot" ? (
         <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
-          <LoanSnapshotCard loan={loan} />
+          <AgentFundingMirror loan={loan} docs={docs} activity={activity} />
         </ScrollView>
       ) : tab === "docs" ? (
         <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+          <Card pad={16}>
+            <SectionLabel>Client-visible conditions</SectionLabel>
+            <Text style={{ fontSize: 13, color: t.ink3, lineHeight: 18 }}>
+              Funding owns review and approval. Use this list to help your client gather open items.
+            </Text>
+          </Card>
           <DocumentRequestList documents={docs} />
         </ScrollView>
       ) : tab === "activity" ? (
@@ -116,10 +127,84 @@ export default function AgentLoanRoute() {
         </ScrollView>
       ) : tab === "messages" ? (
         <LoanThreadView loanId={loan.id} />
-      ) : (
-        <LoanAIView loanId={loan.id} />
-      )}
+      ) : null}
     </SafeAreaView>
+  );
+}
+
+function AgentFundingMirror({ loan, docs, activity }: { loan: Loan; docs: Document[]; activity: Activity[] }) {
+  const { t } = useTheme();
+  const receivedDocs = docs.filter((d) => d.status === "received" || d.status === "verified").length;
+  const openDocs = docs.filter((d) => d.status !== "verified").length;
+  const closeStr = loan.close_date
+    ? new Date(loan.close_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : "Unset";
+
+  return (
+    <>
+      <Card pad={18}>
+        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+          <View style={{ width: 42, height: 42, borderRadius: 13, backgroundColor: t.brandSoft, alignItems: "center", justifyContent: "center" }}>
+            <Icon name="file" size={19} color={t.brand} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <SectionLabel>Agent funding mirror</SectionLabel>
+            <Text style={{ fontSize: 18, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }} numberOfLines={2}>
+              {loan.address || "Subject property"}
+            </Text>
+            <Text style={{ fontSize: 12, color: t.ink3, marginTop: 4, lineHeight: 17 }}>
+              Funding criteria and underwriting stay internal. This view keeps client coordination visible.
+            </Text>
+          </View>
+        </View>
+      </Card>
+
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <MirrorStat label="Amount" value={QC_FMT.short(Number(loan.amount || 0))} />
+        <MirrorStat label="Docs" value={`${receivedDocs}/${docs.length || 0}`} />
+        <MirrorStat label="Close" value={closeStr} />
+      </View>
+
+      <Card pad={16}>
+        <SectionLabel>Status</SectionLabel>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <Pill bg={t.brandSoft} color={t.brand}>{STAGE_LABEL[loan.stage]}</Pill>
+          <Pill bg={openDocs ? t.warnBg : t.profitBg} color={openDocs ? t.warn : t.profit}>
+            {openDocs ? `${openDocs} open item${openDocs === 1 ? "" : "s"}` : "Docs clear"}
+          </Pill>
+          <DealHealthPill health={loan.deal_health ?? null} />
+        </View>
+        <Text style={{ fontSize: 13, color: t.ink2, lineHeight: 19, marginTop: 12 }}>
+          {openDocs
+            ? "Help the client gather open documents and keep transaction parties aligned."
+            : "Keep the client updated while funding moves the file through lender milestones."}
+        </Text>
+      </Card>
+
+      <Card pad={16}>
+        <SectionLabel>Recent funding updates</SectionLabel>
+        {activity.length === 0 ? (
+          <Text style={{ fontSize: 13, color: t.ink3 }}>No recent updates yet.</Text>
+        ) : (
+          activity.slice(0, 4).map((a, i, arr) => (
+            <View key={a.id} style={{ paddingVertical: 8, borderBottomColor: t.line, borderBottomWidth: i < arr.length - 1 ? 1 : 0 }}>
+              <Text style={{ fontSize: 12.5, color: t.ink, fontWeight: "700" }} numberOfLines={2}>{a.summary}</Text>
+              <Text style={{ fontSize: 11, color: t.ink3, marginTop: 2 }}>{new Date(a.occurred_at).toLocaleString()}</Text>
+            </View>
+          ))
+        )}
+      </Card>
+    </>
+  );
+}
+
+function MirrorStat({ label, value }: { label: string; value: string }) {
+  const { t } = useTheme();
+  return (
+    <Card pad={12} style={{ flex: 1, borderRadius: 14 }}>
+      <Text style={{ fontSize: 10, fontWeight: "800", color: t.ink3, letterSpacing: 1, textTransform: "uppercase" }}>{label}</Text>
+      <Text style={{ fontSize: 17, fontWeight: "800", color: t.ink, marginTop: 4 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>{value}</Text>
+    </Card>
   );
 }
 

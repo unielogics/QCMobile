@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, type Href } from "expo-router";
@@ -8,6 +8,8 @@ import { TopBar } from "@/components/TopBar";
 import { KpiTile } from "@/components/agent/KpiTile";
 import { NextActionRow } from "@/components/agent/NextActionRow";
 import { AgentLoanCard } from "@/components/agent/AgentLoanCard";
+import { AgentRateGrid } from "@/components/agent/AgentRateGrid";
+import { AIChatSheet } from "@/components/sheets/AIChatSheet";
 import { useAITasks, useClients, useCurrentUser, useLeadFunnel, useLoans, useNextActions } from "@/hooks/useApi";
 import { deriveFunnelFromLoans, deriveNextActionsFromLoans } from "@/lib/agentDerivation";
 import type { Loan, NextAction } from "@/lib/types";
@@ -74,10 +76,11 @@ export function TodayScreen() {
   };
 
   const name = firstName(user?.name, user?.email);
+  const [showAIChat, setShowAIChat] = useState(false);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
-      <TopBar title="Today" />
+      <TopBar title="Today" onAIPress={() => setShowAIChat(true)} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 18, paddingBottom: 32 }}>
         <View style={{ paddingHorizontal: 4 }}>
           <Text style={{ fontSize: 13, color: t.ink3, fontWeight: "600" }}>{greeting()}{name ? "," : ""}</Text>
@@ -92,6 +95,11 @@ export function TodayScreen() {
             <KpiTile label="Stuck" value={stuck.length} accent={stuck.length ? "danger" : "neutral"} />
             <KpiTile label="Closing ≤30d" value={closingSoon.length} accent={closingSoon.length ? "profit" : "neutral"} />
           </View>
+        </View>
+
+        <View>
+          <SectionLabel>Rates today</SectionLabel>
+          <AgentRateGrid />
         </View>
 
         <View>
@@ -154,6 +162,12 @@ export function TodayScreen() {
           )}
         </View>
       </ScrollView>
+
+      <AIChatSheet
+        visible={showAIChat}
+        onClose={() => setShowAIChat(false)}
+        context="Account-wide"
+      />
     </SafeAreaView>
   );
 }

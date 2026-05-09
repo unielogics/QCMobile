@@ -14,7 +14,16 @@ function initialsOf(name: string | undefined): string {
   return name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 }
 
-export function TopBar({ title }: { title: string }) {
+export function TopBar({
+  title,
+  onAIPress,
+}: {
+  title: string;
+  // When provided, the bell slot is replaced with an AI-secretary
+  // launcher chip. Used by the agent Today tab to surface a global
+  // entry point to the account-wide AIChatSheet.
+  onAIPress?: () => void;
+}) {
   const { t, isDark, toggle } = useTheme();
   const router = useRouter();
   const { data: user } = useMe();
@@ -66,22 +75,37 @@ export function TopBar({ title }: { title: string }) {
             }}>
             <Icon name={isDark ? "sun" : "moon"} size={16} color={t.ink2} />
           </Pressable>
-          <Pressable
-            accessibilityLabel="Notifications"
-            style={{
-              width: 36, height: 36, borderRadius: 11,
-              backgroundColor: t.surface,
-              borderWidth: 1, borderColor: t.line,
-              alignItems: "center", justifyContent: "center",
-            }}>
-            <Icon name="bell" size={16} color={t.ink2} />
-            <View style={{
-              position: "absolute", top: 7, right: 8,
-              width: 7, height: 7, borderRadius: 999,
-              backgroundColor: t.danger,
-              borderWidth: 1.5, borderColor: t.surface,
-            }} />
-          </Pressable>
+          {onAIPress ? (
+            <Pressable
+              onPress={onAIPress}
+              accessibilityLabel="AI secretary"
+              style={({ pressed }) => ({
+                width: 36, height: 36, borderRadius: 11,
+                backgroundColor: t.surface,
+                borderWidth: 1, borderColor: t.line,
+                alignItems: "center", justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}>
+              <Icon name="spark" size={16} color={t.petrol} />
+            </Pressable>
+          ) : (
+            <Pressable
+              accessibilityLabel="Notifications"
+              style={{
+                width: 36, height: 36, borderRadius: 11,
+                backgroundColor: t.surface,
+                borderWidth: 1, borderColor: t.line,
+                alignItems: "center", justifyContent: "center",
+              }}>
+              <Icon name="bell" size={16} color={t.ink2} />
+              <View style={{
+                position: "absolute", top: 7, right: 8,
+                width: 7, height: 7, borderRadius: 999,
+                backgroundColor: t.danger,
+                borderWidth: 1.5, borderColor: t.surface,
+              }} />
+            </Pressable>
+          )}
         </View>
       </View>
 
