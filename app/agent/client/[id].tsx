@@ -7,6 +7,7 @@ import { Avatar, Card, Pill, SectionLabel } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
 import { LoanSnapshotCard } from "@/components/LoanSnapshotCard";
 import { DocumentRequestList } from "@/components/DocumentRequestList";
+import { RealtorReadinessCard } from "@/components/RealtorReadinessCard";
 import { useClient, useDocuments, useEngagement, useFindOrCreateChatThread, useLoans, useRequestPrequalification, useStartFunding, useUpdateClientStage } from "@/hooks/useApi";
 import { ClientStageOptions } from "@/lib/enums.generated";
 import type { ClientStage } from "@/lib/enums.generated";
@@ -167,6 +168,13 @@ export default function AgentClientRoute() {
             </View>
           </View>
         </Card>
+
+        {/* Realtor Client Intelligence Profile (alembic 0030). Renders
+            when the Realtor AI has captured at least the client_type
+            during a conversation. Mirrors the desktop card. */}
+        {client.realtor_profile && client.realtor_profile.client_type !== "unknown" ? (
+          <RealtorReadinessCard profile={client.realtor_profile} />
+        ) : null}
 
         {clientLoans.length > 0 ? (
           <View style={{ gap: 10 }}>

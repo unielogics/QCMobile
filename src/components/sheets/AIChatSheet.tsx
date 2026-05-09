@@ -39,10 +39,13 @@ import {
   useChatAttachmentInit,
   useFindOrCreateChatThread,
   useLoans,
+  useMarkClientFinanceReady,
   useMarkThreadSeen,
   useRequestPrequalification,
   useRouteDocument,
   useSendAIChatMessage,
+  useSendBuyerAgreement,
+  useSendListingAgreement,
 } from "@/hooks/useApi";
 import type { AIChatThread, ChatAction, ChatAttachment, Loan } from "@/lib/types";
 
@@ -73,6 +76,9 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
   const attachmentInit = useChatAttachmentInit();
   const routeDocument = useRouteDocument();
   const requestPrequal = useRequestPrequalification();
+  const sendBuyerAgreement = useSendBuyerAgreement();
+  const sendListingAgreement = useSendListingAgreement();
+  const markFinanceReady = useMarkClientFinanceReady();
   const markSeen = useMarkThreadSeen();
 
   // When the caller controls the thread (initialThreadId set), we
@@ -262,6 +268,40 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
           // as the "Ready for prequal" button on /agent/client/[id].
           if (!action.client_id) return;
           await requestPrequal.mutateAsync(action.client_id);
+          activeThreadQ.refetch();
+          return;
+        }
+        // ── Realtor AI confirm-actions (alembic 0030) ────────────────
+        case "send_buyer_agreement": {
+          if (!action.client_id) return;
+          await sendBuyerAgreement.mutateAsync(action.client_id);
+          activeThreadQ.refetch();
+          return;
+        }
+        case "send_listing_agreement": {
+          if (!action.client_id) return;
+          await sendListingAgreement.mutateAsync(action.client_id);
+          activeThreadQ.refetch();
+          return;
+        }
+        case "mark_client_finance_ready": {
+          if (!action.client_id) return;
+          await markFinanceReady.mutateAsync(action.client_id);
+          activeThreadQ.refetch();
+          return;
+        }
+        // Placeholder cards for the rest — backend handlers land in
+        // follow-up. Tap is a no-op + thread refetch.
+        case "create_buyer_intake":
+        case "create_seller_intake":
+        case "schedule_showing":
+        case "schedule_picture_day":
+        case "prepare_cma_task":
+        case "create_listing_prep_checklist":
+        case "send_property_matches":
+        case "draft_follow_up_text":
+        case "draft_follow_up_email":
+        case "update_realtor_pipeline_stage": {
           activeThreadQ.refetch();
           return;
         }
