@@ -85,22 +85,49 @@ export default function AgentClientRoute() {
     Alert.alert("Request docs", "The doc-request sheet ships with the next backend update. Until then, message the borrower with the list directly.");
   };
 
-  // Agent's controlled handoff to the funding team. Backend creates a
-  // PrequalRequest from Client.lead_intake JSONB + spawns an AITask in
-  // the funding-team queue. Borrower-side path doesn't change.
+  // Agent's controlled handoff to the funding team (alembic 0031).
+  // Backend builds the Lending Handoff Packet, creates a PrequalRequest,
+  // spawns the lending AI thread with the first memory-aware message,
+  // and drops an AITask in the funding queue. Two-step UX:
+  //
+  //   1. Confirm Alert — "Ready to send X to lending? The AI will…"
+  //   2. After fire — success Alert with the handoff summary + the
+  //      first question the Lending AI asked.
   const onRequestPrequal = () => {
     Alert.alert(
-      "Hand off to the funding team?",
-      "We'll create a prequalification quote from this lead's data and notify the funding team. They'll review and convert it to a loan when ready.",
+      `Ready to send ${client.name} to lending?`,
+      "The AI will:\n\n" +
+        "• Summarize the realtor conversation\n" +
+        "• Carry over relevant facts and files\n" +
+        "• Identify missing lending items\n" +
+        "• Create a prequal quote in the funding queue\n" +
+        "• Spawn a lending AI thread that already knows everything",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Send for review",
+          text: "Send to Lending",
           style: "default",
           onPress: async () => {
             setBusy("prequal");
             try {
-              await requestPrequal.mutateAsync(client.id);
+              const result = await requestPrequal.mutateAsync(client.id);
+              const summary = result.handoff_summary
+                ? `\n\nKnown from realtor side:\n${result.handoff_summary}`
+                : "";
+              const missing =
+                result.missing_lending_items && result.missing_lending_items.length > 0
+                  ? `\n\nLending AI will collect:\n• ${result.missing_lending_items.join("\n• ")}`
+                  : "";
+              const firstQ = result.first_lending_question
+                ? `\n\nFirst question the AI asked:\n${result.first_lending_question}`
+                : "";
+              Alert.alert(
+                `${client.name} moved to Lending Intake`,
+                "Funding team has been notified. The Lending AI started a fresh thread and already knows the context." +
+                  summary +
+                  missing +
+                  firstQ,
+              );
             } catch (e) {
               Alert.alert(
                 "Couldn't hand off",
@@ -235,7 +262,7 @@ export default function AgentClientRoute() {
               state — mobile keeps it simpler by hiding the button. */}
           {client.stage === "lead" && client.lead_promotion_status !== "agent_requested_review" ? (
             <ActionButton
-              label="Ready for prequal"
+              label="Ready for lending"
               icon="bolt"
               primary
               onPress={onRequestPrequal}
