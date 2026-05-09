@@ -892,7 +892,9 @@ export function useStartFunding() {
 }
 
 // POST /clients — broker-side "Add Lead". Backend hard-stamps broker_id
-// from the session for Role.BROKER, so we don't send it.
+// from the session for Role.BROKER, so we don't send it. Lead routing /
+// ownership / attribution fields (alembic 0029) sit alongside the
+// basic name/email/phone — captured by the mobile AgentAddLeadRoute.
 export function useCreateClient() {
   const fetcher = useAuthedFetch();
   const qc = useQueryClient();
@@ -905,6 +907,19 @@ export function useCreateClient() {
       referral_source?: string;
       stage?: ClientStage;
       client_type?: "buyer" | "seller";
+      // Per-lead overrides (alembic 0025).
+      lead_intake?: Record<string, unknown> | null;
+      checklist_overrides?: Record<string, unknown> | null;
+      ai_cadence_override?: Record<string, unknown> | null;
+      // Lead routing / ownership / attribution (alembic 0029). Mirrors
+      // QCDashboard so the mobile agent flow fills in the same data
+      // and the funding team has parity context regardless of channel.
+      lead_source?: string;
+      lead_temperature?: string;
+      financing_support_needed?: string;
+      contact_permission?: string;
+      relationship_context?: string;
+      source_channel?: string;
     }) =>
       fetcher<Client>("/clients", {
         method: "POST",
@@ -912,6 +927,32 @@ export function useCreateClient() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
+}
+
+// Hand a lead off to the funding team for prequalification review.
+// Backend creates a PrequalRequest from Client.lead_intake JSONB +
+// spawns an AITask in the funding-team queue. Used by:
+//   - "Ready for Prequalification" action on /agent/client/[id]
+//   - AIChatSheet action card (kind: "request_prequalification")
+export function useRequestPrequalification() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    // invalidates: ["client", clientId], ["clients"], ["ai-tasks"]
+    mutationFn: (clientId: string) =>
+      fetcher<{
+        prequal_request_id: string;
+        client_id: string;
+        lead_promotion_status: string;
+      }>(`/clients/${clientId}/request-prequalification`, {
+        method: "POST",
+      }),
+    onSuccess: (_data, clientId) => {
+      qc.invalidateQueries({ queryKey: ["client", clientId] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["ai-tasks"] });
     },
   });
 }

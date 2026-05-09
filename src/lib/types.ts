@@ -42,7 +42,47 @@ export interface Client {
   client_experience_mode?: ClientExperienceMode | null;
   client_experience_mode_reason?: ClientExperienceModeReason | null;
   client_experience_mode_locked_by?: ClientExperienceModeLockedBy | null;
+  // Lead routing / ownership / attribution (alembic 0029). Mirrors
+  // QCDashboard so mobile agents can read / write the same lead
+  // surface as the desktop.
+  lead_source?: LeadSource | null;
+  lead_temperature?: LeadTemperature | null;
+  financing_support_needed?: FinancingSupportNeeded | null;
+  contact_permission?: ContactPermission | null;
+  relationship_context?: RelationshipContext | null;
+  lead_promotion_status?: LeadPromotionStatus;
+  originating_agent_id?: string | null;
+  current_agent_id?: string | null;
+  source_channel?: string | null;
 }
+
+// Lead-routing enum values mirror app/schemas/client.py.
+export type LeadSource =
+  | "manual_entry"
+  | "open_house"
+  | "referral"
+  | "listing_inquiry"
+  | "buyer_consultation"
+  | "existing_database"
+  | "other";
+export type LeadTemperature = "hot" | "warm" | "nurture";
+export type FinancingSupportNeeded = "yes" | "maybe" | "no" | "unknown";
+export type ContactPermission =
+  | "send_invite_now"
+  | "save_lead_only"
+  | "agent_will_introduce_first";
+export type RelationshipContext =
+  | "new_lead"
+  | "existing_client"
+  | "past_client"
+  | "referral_from_other"
+  | "other";
+export type LeadPromotionStatus =
+  | "not_ready"
+  | "agent_requested_review"
+  | "funding_reviewing"
+  | "promoted_to_intake"
+  | "declined";
 
 export type ClientExperienceMode = "guided" | "self_directed" | "hybrid";
 export type ClientExperienceModeReason =
@@ -254,11 +294,17 @@ export interface ChatAction {
     | "upload_document"
     | "confirm_document_routing"
     | "complete_property_intake"
-    | "open_calendar_event";
+    | "open_calendar_event"
+    // AI Secretary action: agent says "Marcus is ready for prequal"
+    // → AI emits this card → tap → fires
+    // POST /clients/{id}/request-prequalification.
+    | "request_prequalification";
   label: string;
   document_id?: string | null;
   checklist_key?: string | null;
   calendar_event_id?: string | null;
+  // Set when kind=request_prequalification.
+  client_id?: string | null;
   confirm?: boolean;
 }
 

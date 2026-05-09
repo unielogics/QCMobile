@@ -40,6 +40,7 @@ import {
   useFindOrCreateChatThread,
   useLoans,
   useMarkThreadSeen,
+  useRequestPrequalification,
   useRouteDocument,
   useSendAIChatMessage,
 } from "@/hooks/useApi";
@@ -71,6 +72,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
   const sendMessage = useSendAIChatMessage();
   const attachmentInit = useChatAttachmentInit();
   const routeDocument = useRouteDocument();
+  const requestPrequal = useRequestPrequalification();
   const markSeen = useMarkThreadSeen();
 
   // When the caller controls the thread (initialThreadId set), we
@@ -252,6 +254,15 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
         }
         case "open_calendar_event": {
           // No-op for v1 — calendar deep-links land in a follow-up.
+          return;
+        }
+        case "request_prequalification": {
+          // AI Secretary path — agent says "Marcus is ready for prequal"
+          // → AI emits this action card → tap → fires the same endpoint
+          // as the "Ready for prequal" button on /agent/client/[id].
+          if (!action.client_id) return;
+          await requestPrequal.mutateAsync(action.client_id);
+          activeThreadQ.refetch();
           return;
         }
       }

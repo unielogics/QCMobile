@@ -7,7 +7,7 @@ import { Avatar, Card, Pill, SectionLabel } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
 import { LoanSnapshotCard } from "@/components/LoanSnapshotCard";
 import { DocumentRequestList } from "@/components/DocumentRequestList";
-import { useClient, useDocuments, useEngagement, useFindOrCreateChatThread, useLoans, useStartFunding, useUpdateClientStage } from "@/hooks/useApi";
+import { useClient, useDocuments, useEngagement, useFindOrCreateChatThread, useLoans, useRequestPrequalification, useStartFunding, useUpdateClientStage } from "@/hooks/useApi";
 import { ClientStageOptions } from "@/lib/enums.generated";
 import type { ClientStage } from "@/lib/enums.generated";
 
@@ -24,6 +24,7 @@ export default function AgentClientRoute() {
   const { data: engagement = [] } = useEngagement(id);
   const updateStage = useUpdateClientStage();
   const startFunding = useStartFunding();
+  const requestPrequal = useRequestPrequalification();
   const findOrCreate = useFindOrCreateChatThread();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -81,6 +82,36 @@ export default function AgentClientRoute() {
       return;
     }
     Alert.alert("Request docs", "The doc-request sheet ships with the next backend update. Until then, message the borrower with the list directly.");
+  };
+
+  // Agent's controlled handoff to the funding team. Backend creates a
+  // PrequalRequest from Client.lead_intake JSONB + spawns an AITask in
+  // the funding-team queue. Borrower-side path doesn't change.
+  const onRequestPrequal = () => {
+    Alert.alert(
+      "Hand off to the funding team?",
+      "We'll create a prequalification quote from this lead's data and notify the funding team. They'll review and convert it to a loan when ready.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Send for review",
+          style: "default",
+          onPress: async () => {
+            setBusy("prequal");
+            try {
+              await requestPrequal.mutateAsync(client.id);
+            } catch (e) {
+              Alert.alert(
+                "Couldn't hand off",
+                e instanceof Error ? e.message : "Try again in a minute.",
+              );
+            } finally {
+              setBusy(null);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const onStartFunding = () => {
@@ -189,6 +220,19 @@ export default function AgentClientRoute() {
           <ActionButton label="Message" icon="chat" onPress={onMessage} loading={busy === "message"} />
           {client.stage === "lead" ? (
             <ActionButton label="Contacted" icon="check" onPress={onMarkContacted} loading={busy === "contacted"} />
+          ) : null}
+          {/* Lead-stage handoff to funding team. Hidden once already
+              requested so the agent doesn't double-fire. The desktop
+              shows a "Funding review requested" pill in the same
+              state — mobile keeps it simpler by hiding the button. */}
+          {client.stage === "lead" && client.lead_promotion_status !== "agent_requested_review" ? (
+            <ActionButton
+              label="Ready for prequal"
+              icon="bolt"
+              primary
+              onPress={onRequestPrequal}
+              loading={busy === "prequal"}
+            />
           ) : null}
           {client.stage === "verified" ? (
             <ActionButton label="Start funding" icon="bolt" primary onPress={onStartFunding} loading={busy === "funding"} />
