@@ -69,6 +69,7 @@ export default function AIAssistantSettingsRoute() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32, gap: 14 }}>
+        <MiniWorkflow />
         {tab === "buyer" ? <SidedView side="buyer" leadLabel="buyer lead" /> : null}
         {tab === "seller" ? <SidedView side="seller" leadLabel="seller lead" /> : null}
         {tab === "followup" ? <FollowUpView /> : null}
@@ -96,6 +97,15 @@ function SidedView({ side, leadLabel }: { side: "buyer" | "seller"; leadLabel: s
 
   return (
     <Card pad={16}>
+      <InfoStrip
+        icon={side === "buyer" ? "user" : "building2"}
+        title={side === "buyer" ? "Agent-side collection" : "Seller-side collection"}
+        body={
+          side === "buyer"
+            ? "These rules guide the Realtor AI until the buyer is ready for lending."
+            : "Seller rules stay with the agent workflow and are not sent into lending by themselves."
+        }
+      />
       <Text style={{ fontSize: 13, color: t.muted, marginBottom: 12 }}>
         When you get a {leadLabel}, your AI should collect:
       </Text>
@@ -212,6 +222,11 @@ function HandoffView() {
 
   return (
     <Card pad={16}>
+      <InfoStrip
+        icon="arrowR"
+        title="Buyer-to-lending gate"
+        body="After the agent confirms this gate, the funding-side AI takes over with loan requirements, document checks, tasks, and calendar due dates."
+      />
       <Text style={{ fontSize: 13, color: t.muted, marginBottom: 12 }}>
         Before your AI suggests sending a buyer to lending:
       </Text>
@@ -271,6 +286,74 @@ function StyleView() {
         Edit on desktop.
       </Text>
     </Card>
+  );
+}
+
+
+function MiniWorkflow() {
+  const { t } = useTheme();
+  const steps = [
+    { icon: "user", label: "Agent AI", body: "Buyer / seller relationship" },
+    { icon: "check", label: "Ready", body: "Buyer handoff gate" },
+    { icon: "shieldChk", label: "Lending AI", body: "Funding workflow" },
+  ];
+  return (
+    <View style={{ flexDirection: "row", gap: 8 }}>
+      {steps.map((step, i) => (
+        <View key={step.label} style={{
+          flex: 1,
+          padding: 10,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: i === 1 ? t.accent : t.border,
+          backgroundColor: i === 1 ? t.surface2 : t.surface,
+          minHeight: 98,
+        }}>
+          <Icon name={step.icon} size={16} color={i === 1 ? t.accent : t.muted} />
+          <Text style={{ marginTop: 7, fontSize: 11, fontWeight: "800", color: t.ink }}>
+            {step.label}
+          </Text>
+          <Text style={{ marginTop: 3, fontSize: 10, lineHeight: 14, color: t.muted }}>
+            {step.body}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+
+function InfoStrip({
+  icon,
+  title,
+  body,
+}: {
+  icon: string;
+  title: string;
+  body: string;
+}) {
+  const { t } = useTheme();
+  return (
+    <View style={{
+      flexDirection: "row",
+      gap: 9,
+      padding: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: t.border,
+      backgroundColor: t.surface2,
+      marginBottom: 12,
+    }}>
+      <Icon name={icon} size={15} color={t.accent} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 12, fontWeight: "800", color: t.ink, marginBottom: 2 }}>
+          {title}
+        </Text>
+        <Text style={{ fontSize: 11, lineHeight: 15, color: t.muted }}>
+          {body}
+        </Text>
+      </View>
+    </View>
   );
 }
 

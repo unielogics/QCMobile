@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Card, Pill, SectionLabel } from "@/design-system/primitives";
-import { Icon } from "@/design-system/Icon";
+import { Icon, type IconName } from "@/design-system/Icon";
 import { DocumentRequestList } from "@/components/DocumentRequestList";
 import { DealHealthPill } from "@/components/agent/DealHealthPill";
 import { AIPromptPicker } from "@/components/agent/AIPromptPicker";
@@ -22,12 +22,17 @@ import type { Activity, Document, Loan } from "@/lib/types";
 
 type Tab = "snapshot" | "docs" | "activity" | "messages";
 
-const TABS: { value: Tab; label: string }[] = [
-  { value: "snapshot", label: "Snapshot" },
-  { value: "docs", label: "Docs" },
-  { value: "activity", label: "Activity" },
-  { value: "messages", label: "Messages" },
+const TABS: { value: Tab; label: string; icon: IconName }[] = [
+  { value: "snapshot", label: "Snapshot", icon: "file" },
+  { value: "docs",     label: "Docs",     icon: "vault" },
+  { value: "activity", label: "Activity", icon: "audit" },
+  { value: "messages", label: "Messages", icon: "chat" },
 ];
+
+// Height the body content needs to clear so the sticky bottom tab
+// bar doesn't cover it. Tab bar is roughly 64px tall + safe-area
+// inset, so 88 + inset gives a comfortable buffer.
+const BOTTOM_BAR_PAD = 88;
 
 const STAGE_LABEL: Record<LoanStage, string> = Object.fromEntries(
   LoanStageOptions.map((o) => [o.value, o.label])
@@ -36,6 +41,8 @@ const STAGE_LABEL: Record<LoanStage, string> = Object.fromEntries(
 export default function AgentLoanRoute() {
   const { t } = useTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const bottomPad = BOTTOM_BAR_PAD + insets.bottom;
   const { id } = useLocalSearchParams<{ id: string }>();
   const [tab, setTab] = useState<Tab>("snapshot");
 
@@ -68,35 +75,12 @@ export default function AgentLoanRoute() {
         <DealHealthPill health={loan.deal_health ?? null} />
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}
-      >
-        {TABS.map((tt) => {
-          const active = tab === tt.value;
-          return (
-            <Pressable
-              key={tt.value}
-              onPress={() => setTab(tt.value)}
-              style={({ pressed }) => ({
-                paddingVertical: 7, paddingHorizontal: 13, borderRadius: 999,
-                backgroundColor: active ? t.brand : t.surface2,
-                opacity: pressed ? 0.85 : 1,
-              })}
-            >
-              <Text style={{ fontSize: 12, fontWeight: "700", color: active ? "#fff" : t.ink }}>{tt.label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
       {tab === "snapshot" ? (
-        <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: bottomPad }}>
           <AgentFundingMirror loan={loan} docs={docs} activity={activity} />
         </ScrollView>
       ) : tab === "docs" ? (
-        <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: bottomPad }}>
           <Card pad={16}>
             <SectionLabel>Client-visible conditions</SectionLabel>
             <Text style={{ fontSize: 13, color: t.ink3, lineHeight: 18 }}>
@@ -106,7 +90,7 @@ export default function AgentLoanRoute() {
           <DocumentRequestList documents={docs} />
         </ScrollView>
       ) : tab === "activity" ? (
-        <ScrollView contentContainerStyle={{ padding: 16, gap: 8 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 8, paddingBottom: bottomPad }}>
           {activity.length === 0 ? (
             <Card pad={18}>
               <Text style={{ fontSize: 13, color: t.ink3 }}>No activity recorded yet.</Text>
@@ -126,8 +110,65 @@ export default function AgentLoanRoute() {
           )}
         </ScrollView>
       ) : tab === "messages" ? (
-        <LoanThreadView loanId={loan.id} />
+        <LoanThreadView loanId={loan.id} bottomPad={bottomPad} />
       ) : null}
+
+      {/* Sticky bottom tab bar — same anchoring style as the Client
+          page's bottom action bar (position: absolute, surface bg,
+          top border, soft shadow, safe-area-aware bottom padding). */}
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          flexDirection: "row",
+          paddingTop: 8,
+          paddingBottom: 8 + insets.bottom,
+          paddingHorizontal: 6,
+          backgroundColor: t.surface,
+          borderTopColor: t.line,
+          borderTopWidth: 1,
+          shadowColor: "#0B1629",
+          shadowOpacity: 0.08,
+          shadowRadius: 14,
+          shadowOffset: { width: 0, height: -4 },
+        }}
+      >
+        {TABS.map((tt) => {
+          const active = tab === tt.value;
+          return (
+            <Pressable
+              key={tt.value}
+              onPress={() => setTab(tt.value)}
+              accessibilityLabel={tt.label}
+              style={({ pressed }) => ({
+                flex: 1,
+                paddingVertical: 8,
+                borderRadius: 12,
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 4,
+                backgroundColor: active ? t.brandSoft : "transparent",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Icon name={tt.icon} size={20} color={active ? t.brand : t.ink3} />
+              <Text
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: "800",
+                  color: active ? t.brand : t.ink3,
+                  letterSpacing: 0.2,
+                }}
+                numberOfLines={1}
+              >
+                {tt.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </SafeAreaView>
   );
 }
@@ -208,7 +249,7 @@ function MirrorStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function LoanThreadView({ loanId }: { loanId: string }) {
+function LoanThreadView({ loanId, bottomPad }: { loanId: string; bottomPad: number }) {
   const { t } = useTheme();
   const router = useRouter();
   const findOrCreate = useFindOrCreateChatThread();
@@ -226,7 +267,7 @@ function LoanThreadView({ loanId }: { loanId: string }) {
   const { data: thread } = useAIChatThread(threadId);
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
+    <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: bottomPad }}>
       {!thread ? (
         <Card pad={18}><Text style={{ fontSize: 13, color: t.ink3 }}>Opening conversation…</Text></Card>
       ) : (
