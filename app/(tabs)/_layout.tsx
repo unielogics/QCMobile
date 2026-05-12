@@ -2,6 +2,7 @@ import { Tabs } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon, type IconName } from "@/design-system/Icon";
 import { FundingAccessGate } from "@/components/FundingAccessGate";
+import { UnlinkedAccountScreen } from "@/components/UnlinkedAccountScreen";
 import { useExperienceMode } from "@/hooks/useExperienceMode";
 
 function TabIcon({ name, color, focused }: { name: IconName; color: string; focused: boolean }) {
@@ -11,6 +12,14 @@ function TabIcon({ name, color, focused }: { name: IconName; color: string; focu
 export default function TabsLayout() {
   const { t } = useTheme();
   const mode = useExperienceMode();
+  // Bail out before rendering tab routes — the previous code silently
+  // fell through to self_directed when the calling user had no linked
+  // Client row, which corrupted both the workflow choice and the
+  // visibility of the agent's prior data (credit, docs, history).
+  // Loading: render nothing for one tick; unlinked: show the support
+  // screen with retry + sign-out.
+  if (mode === "loading") return null;
+  if (mode === "unlinked") return <UnlinkedAccountScreen />;
   const guided = mode === "guided";
 
   return (
