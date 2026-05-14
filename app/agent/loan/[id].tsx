@@ -209,7 +209,7 @@ export default function AgentLoanRoute() {
             <HudTab loanId={loan.id} loanAmount={Number(loan.amount || 0)} />
           </ScrollView>
         ) : tab === "messages" ? (
-          <LoanMessagesTab loanId={loan.id} viewerRole={viewerRole} />
+          <LoanMessagesTab loanId={loan.id} dealId={loan.deal_id} address={loan.address} viewerRole={viewerRole} />
         ) : tab === "ai" ? (
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomPad }}>
             <AISecretaryTab loanId={loan.id} />
@@ -248,9 +248,13 @@ export default function AgentLoanRoute() {
 
 function LoanMessagesTab({
   loanId,
+  dealId,
+  address,
   viewerRole,
 }: {
   loanId: string;
+  dealId: string;
+  address: string;
   viewerRole: "broker" | "super_admin" | "loan_exec" | "client";
 }) {
   const { t } = useTheme();
@@ -268,13 +272,33 @@ function LoanMessagesTab({
     );
   }
 
-  // No paddingBottom math here — LoanChatComposer reserves the
-  // system-bar inset itself via useSafeAreaInsets, and KeyboardAware
-  // adds insets.bottom into keyboardVerticalOffset. The two cooperate
-  // so the composer sits above both the system nav bar and the soft
-  // keyboard without the brittle `bottomPad - 70` magic number.
   return (
     <KeyboardAware excludeTabBar>
+      {/* Sticky deal-id strip so it's obvious which file/thread this
+          composer writes into — the broker may have several files open
+          in adjacent tabs. */}
+      <View
+        style={{
+          flexDirection: "row", alignItems: "center", gap: 8,
+          paddingHorizontal: 16, paddingVertical: 8,
+          borderBottomColor: t.line, borderBottomWidth: 1,
+          backgroundColor: t.surface,
+        }}
+      >
+        <View
+          style={{
+            paddingHorizontal: 7, paddingVertical: 2,
+            borderRadius: 6, backgroundColor: t.petrolSoft,
+          }}
+        >
+          <Text style={{ fontSize: 11, fontWeight: "800", color: t.petrol }}>
+            {dealId}
+          </Text>
+        </View>
+        <Text style={{ fontSize: 12, color: t.ink2, flex: 1 }} numberOfLines={1}>
+          {address || "Loan chat"}
+        </Text>
+      </View>
       <View style={{ flex: 1 }}>
         <LoanChatThread messages={chat} viewerRole={viewerRole} />
       </View>

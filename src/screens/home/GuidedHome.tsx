@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { TopBar } from "@/components/TopBar";
 import { NextActionCard } from "@/components/NextActionCard";
@@ -18,6 +18,7 @@ import {
   useMyClient,
 } from "@/hooks/useApi";
 import { deriveNextAction } from "@/lib/nextAction";
+import type { Loan } from "@/lib/types";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -41,11 +42,18 @@ export function GuidedHome() {
   const { data: client } = useMyClient();
   const { data: credit } = useCreditCurrent();
   const { data: loans = [] } = useLoans();
-  const activeLoan = useMemo(
-    () => loans.find((l) => l.stage !== "funded") ?? loans[0] ?? null,
+  // All loans the borrower still has live work on. Funded loans are
+  // retained-relationship territory and surface separately later.
+  const activeLoans = useMemo(
+    () => loans.filter((l) => l.stage !== "funded"),
     [loans],
   );
-  const { data: documents = [] } = useDocuments(activeLoan?.id);
+  // Primary loan for any single-loan affordance (next-action header,
+  // document list anchoring). Falls back to the most recent loan
+  // (including funded) so we never have a blank state when the user has
+  // closed deals.
+  const primaryLoan = activeLoans[0] ?? loans[0] ?? null;
+  const { data: documents = [] } = useDocuments(primaryLoan?.id);
   // Threads drive the unread indicator + "last message" preview on the
   // chat hero card. Cheap query — the existing AIChatSheet already
   // uses the same hook so this is cached.
@@ -59,16 +67,12 @@ export function GuidedHome() {
   const name = firstNameOf(user);
   const [chatOpen, setChatOpen] = useState(false);
 
-  // Pick the most recent thread for a preview message + unread badge.
-  // The chat hero is the focal point in Guided mode — borrowers should
-  // see "where the conversation is" before anything else on the screen.
-  const primary = useMemo(() => {
-    const sorted = [...threads].sort((a, b) =>
-      (b.last_message_at ?? "").localeCompare(a.last_message_at ?? ""),
-    );
-    return sorted[0] ?? null;
-  }, [threads]);
-  const hasUnread = threads.some((th) => th.unread === true);
+  // The Account-AI thread is what the AIChatSheet should open (per
+  // Phase 7.5 — sheet is account-only; loan chats live on the loan
+  // page). Per-loan unread/preview is surfaced inline as a chip
+  // beside each loan in the picker.
+  const accountThread = useMemo(() => threads.find((th) => !th.loan_id), [threads]);
+  const hasAccountUnread = !!accountThread?.unread;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
@@ -86,16 +90,20 @@ export function GuidedHome() {
           ) : null}
         </View>
 
-        {/* PRIMARY: AI Concierge chat hero. In Guided mode the chat is
-            the main interface — borrowers move through their file by
-            replying to the AI, not by tab-hunting. Big, tappable, with
-            unread badge + last-message preview when available. */}
-        <ChatHeroCard
+        {/* PRIMARY: AI Concierge picker. Account thread on the left
+            (opens AIChatSheet), each active loan on the right (deep-
+            links into /loan/[id]?tab=chat — the workspace thread that
+            also receives broker Live-Chat). Putting both surfaces in
+            one place keeps the conversation entry point predictable
+            and matches the deal_id user-mental-model. */}
+        <ChatHeroPicker
           t={t}
-          unread={hasUnread}
-          preview={primary?.last_message_preview ?? null}
-          lastAt={primary?.last_message_at ?? null}
-          onPress={() => setChatOpen(true)}
+          accountUnread={hasAccountUnread}
+          accountPreview={accountThread?.last_message_preview ?? null}
+          accountLastAt={accountThread?.last_message_at ?? null}
+          loans={activeLoans}
+          onOpenAccount={() => setChatOpen(true)}
+          onOpenLoan={(loanId) => router.push({ pathname: "/loan/[id]", params: { id: loanId, tab: "chat" } } as Href)}
         />
 
         {/* Secondary surfaces. Smaller, below the fold so they're
@@ -109,12 +117,22 @@ export function GuidedHome() {
           }
         />
 
-        {activeLoan && (
+        {activeLoans.length > 0 ? (
+          <View style={{ gap: 10 }}>
+            {activeLoans.map((l) => (
+              <LoanSnapshotCard
+                key={l.id}
+                loan={l}
+                onPress={() => router.push({ pathname: "/loan/[id]", params: { id: l.id } } as Href)}
+              />
+            ))}
+          </View>
+        ) : primaryLoan ? (
           <LoanSnapshotCard
-            loan={activeLoan}
-            onPress={() => router.push("/(tabs)/simulator")}
+            loan={primaryLoan}
+            onPress={() => router.push({ pathname: "/loan/[id]", params: { id: primaryLoan.id } } as Href)}
           />
-        )}
+        ) : null}
 
         <DocumentRequestList documents={documents} />
       </ScrollView>
@@ -123,111 +141,137 @@ export function GuidedHome() {
         visible={chatOpen}
         onClose={() => setChatOpen(false)}
         context="From your dashboard"
-        initialThreadId={primary?.id ?? null}
+        initialThreadId={accountThread?.id ?? null}
       />
     </SafeAreaView>
   );
 }
 
 
-// AI Concierge hero card — the primary affordance on Guided home.
-// Renders large, brand-tinted, with a chat icon, last-message preview
-// (or a starter prompt when there's no history yet), an unread dot,
-// and relative timestamp. Tapping anywhere opens AIChatSheet.
-function ChatHeroCard({
+// AI Concierge picker — primary affordance on Guided home. Splits into
+// two visually distinct rows so the borrower never confuses "ask the AI
+// general questions" (account thread) with "talk about this loan"
+// (workspace thread on /loan/[id]). Each loan row carries the deal_id
+// prominently so users can identify which file they're opening before
+// they tap.
+function ChatHeroPicker({
   t,
-  unread,
-  preview,
-  lastAt,
-  onPress,
+  accountUnread,
+  accountPreview,
+  accountLastAt,
+  loans,
+  onOpenAccount,
+  onOpenLoan,
 }: {
   t: ReturnType<typeof useTheme>["t"];
-  unread: boolean;
-  preview: string | null;
-  lastAt: string | null;
-  onPress: () => void;
+  accountUnread: boolean;
+  accountPreview: string | null;
+  accountLastAt: string | null;
+  loans: Loan[];
+  onOpenAccount: () => void;
+  onOpenLoan: (loanId: string) => void;
 }) {
-  const subtitle = preview
-    ? preview
-    : "Tap to talk to your AI concierge — ask about docs, status, or what's next.";
-  const ts = relativeTime(lastAt);
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
+    <View
+      style={{
         borderRadius: 16,
-        // Match the "Pending" pill palette — semi-transparent orange
-        // wash (t.warnBg) with the deeper t.warn used for accent text
-        // and icons. Same family across light + dark themes.
         backgroundColor: t.warnBg,
-        padding: 18,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 14,
+        padding: 14,
+        gap: 10,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.10,
         shadowRadius: 12,
         elevation: 2,
-        opacity: pressed ? 0.92 : 1,
-      })}
+      }}
     >
-      <View
-        style={{
-          width: 52,
-          height: 52,
-          borderRadius: 26,
-          // Tint of t.warn so the icon "chip" reads as a deeper orange
-          // medallion on the wash. Inline rgba because we don't have a
-          // theme-conditional helper for this exact opacity.
-          backgroundColor: "rgba(168,106,18,0.15)",
-          alignItems: "center",
-          justifyContent: "center",
-          position: "relative",
-        }}
+      <Text style={{ fontSize: 11, fontWeight: "800", color: t.warn, letterSpacing: 1.0 }}>
+        AI CONCIERGE
+      </Text>
+
+      {/* Account thread row */}
+      <Pressable
+        onPress={onOpenAccount}
+        style={({ pressed }) => ({
+          flexDirection: "row", alignItems: "center", gap: 12,
+          backgroundColor: t.surface, borderRadius: 12, padding: 12,
+          opacity: pressed ? 0.92 : 1,
+        })}
       >
-        <Icon name="chat" size={26} color={t.warn} stroke={2.2} />
-        {unread ? (
-          <View
-            style={{
-              position: "absolute",
-              top: -2,
-              right: -2,
-              width: 14,
-              height: 14,
-              borderRadius: 7,
-              backgroundColor: t.danger,
-              borderWidth: 2,
-              // Match the card bg so the dot reads as a clean cutout.
-              borderColor: t.warnBg,
-            }}
-          />
-        ) : null}
-      </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <Text style={{ fontSize: 11, fontWeight: "800", color: t.warn, letterSpacing: 1.0 }}>
-            AI CONCIERGE
-          </Text>
-          {ts ? (
-            <Text style={{ fontSize: 11, color: t.ink3 }}>· {ts}</Text>
+        <View
+          style={{
+            width: 40, height: 40, borderRadius: 20,
+            backgroundColor: "rgba(168,106,18,0.15)",
+            alignItems: "center", justifyContent: "center",
+            position: "relative",
+          }}
+        >
+          <Icon name="chat" size={20} color={t.warn} stroke={2.2} />
+          {accountUnread ? (
+            <View
+              style={{
+                position: "absolute", top: -2, right: -2,
+                width: 12, height: 12, borderRadius: 6,
+                backgroundColor: t.danger, borderWidth: 2, borderColor: t.surface,
+              }}
+            />
           ) : null}
         </View>
-        <Text
-          style={{ fontSize: 16, fontWeight: "800", color: t.ink, marginTop: 3 }}
-          numberOfLines={1}
-        >
-          {preview ? "Continue your conversation" : "Start a conversation"}
-        </Text>
-        <Text
-          style={{ fontSize: 13, color: t.ink2, marginTop: 4, lineHeight: 18 }}
-          numberOfLines={2}
-        >
-          {subtitle}
-        </Text>
-      </View>
-      <Icon name="chevR" size={20} color={t.warn} />
-    </Pressable>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink }} numberOfLines={1}>
+            Account questions
+          </Text>
+          <Text style={{ fontSize: 12, color: t.ink3, marginTop: 2 }} numberOfLines={1}>
+            {accountPreview ?? "General questions about your portfolio."}
+            {accountLastAt ? ` · ${relativeTime(accountLastAt) ?? ""}` : ""}
+          </Text>
+        </View>
+        <Icon name="chevR" size={18} color={t.ink3} />
+      </Pressable>
+
+      {/* Per-loan rows — each routes to /loan/[id]?tab=chat (workspace
+          chat the AI + broker also write to). */}
+      {loans.length > 0 ? (
+        <>
+          <Text style={{ fontSize: 10.5, fontWeight: "800", color: t.warn, letterSpacing: 1.0, marginTop: 4, marginLeft: 2 }}>
+            LOANS
+          </Text>
+          {loans.map((loan) => (
+            <Pressable
+              key={loan.id}
+              onPress={() => onOpenLoan(loan.id)}
+              style={({ pressed }) => ({
+                flexDirection: "row", alignItems: "center", gap: 10,
+                backgroundColor: t.surface, borderRadius: 12, padding: 12,
+                opacity: pressed ? 0.92 : 1,
+              })}
+            >
+              <View
+                style={{
+                  paddingHorizontal: 8, paddingVertical: 4,
+                  borderRadius: 7, backgroundColor: t.petrolSoft,
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: "800", color: t.petrol }}>
+                  {loan.deal_id}
+                </Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ fontSize: 13, fontWeight: "700", color: t.ink }} numberOfLines={1}>
+                  {loan.address || "Subject property"}
+                </Text>
+                {loan.city ? (
+                  <Text style={{ fontSize: 11.5, color: t.ink3, marginTop: 1 }} numberOfLines={1}>
+                    {loan.city}
+                  </Text>
+                ) : null}
+              </View>
+              <Icon name="chevR" size={16} color={t.ink3} />
+            </Pressable>
+          ))}
+        </>
+      ) : null}
+    </View>
   );
 }
 

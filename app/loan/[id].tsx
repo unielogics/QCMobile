@@ -218,6 +218,30 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
 
   return (
     <KeyboardAware excludeTabBar>
+      {/* Sticky deal-id strip so the borrower always knows which loan
+          this thread is for, even after they've scrolled the messages. */}
+      <View
+        style={{
+          flexDirection: "row", alignItems: "center", gap: 8,
+          paddingHorizontal: 16, paddingVertical: 8,
+          borderBottomColor: t.line, borderBottomWidth: 1,
+          backgroundColor: t.surface,
+        }}
+      >
+        <View
+          style={{
+            paddingHorizontal: 7, paddingVertical: 2,
+            borderRadius: 6, backgroundColor: t.petrolSoft,
+          }}
+        >
+          <Text style={{ fontSize: 11, fontWeight: "800", color: t.petrol }}>
+            {dealId}
+          </Text>
+        </View>
+        <Text style={{ fontSize: 12, color: t.ink2, flex: 1 }} numberOfLines={1}>
+          Loan chat thread
+        </Text>
+      </View>
       <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}>
         <PauseBanner
           loanId={loanId}

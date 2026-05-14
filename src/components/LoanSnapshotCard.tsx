@@ -26,9 +26,16 @@ export function LoanSnapshotCard({ loan, onPress }: { loan: Loan; onPress?: () =
     <>
       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 11, fontWeight: "700", letterSpacing: 1.4, color: t.ink3, textTransform: "uppercase" }}>
-            Active loan
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ fontSize: 11, fontWeight: "700", letterSpacing: 1.4, color: t.ink3, textTransform: "uppercase" }}>
+              Active loan
+            </Text>
+            <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: t.petrolSoft }}>
+              <Text style={{ fontSize: 11, fontWeight: "800", color: t.petrol }}>
+                {loan.deal_id}
+              </Text>
+            </View>
+          </View>
           <Text style={{ fontSize: 17, fontWeight: "800", color: t.ink, marginTop: 4 }}>
             {loan.address || "Subject property"}
           </Text>
