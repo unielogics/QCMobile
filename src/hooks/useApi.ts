@@ -1653,3 +1653,98 @@ export function useUnassignTaskFromAI() {
     },
   });
 }
+
+// ── Wizard intent buffer (Phase 7 — lead-creation cadence handoff) ────
+//
+// Captures AI cadence preset (gentle/standard/aggressive) selected during
+// the new-client wizard so the backend can later materialize it into
+// real AITaskAssignment rows when the cadence engine fires pre-loan.
+// Mirrors desktop's useBufferWizardIntent (QCDashboard useApi.ts:3650).
+//
+// Endpoint: POST /clients/{clientId}/deal-secretary/wizard-intent
+// Body shape mirrors desktop's DSWizardIntentRequest — minimum required is
+// `cadence_preset`; we leave `ai_assignments` empty on mobile (desktop's
+// Step 4 picks individual tasks; mobile defers that to the per-client
+// nurture controls in Phase 7.3).
+
+export interface WizardIntentRequest {
+  cadence_preset?: "gentle" | "standard" | "aggressive";
+  ai_assignments?: Array<{ requirement_key: string }>;
+}
+
+export function useBufferWizardIntent() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, body }: { clientId: string; body: WizardIntentRequest }) =>
+      fetcher<{ ok: boolean }>(
+        `/clients/${clientId}/deal-secretary/wizard-intent`,
+        { method: "POST", body: JSON.stringify(body) },
+      ),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["clientAIPlan", vars.clientId] });
+    },
+  });
+}
+
+// ── Phase 7.3 — Client-level nurturing controls ─────────────────────
+//
+// Surface for the broker to drive the Client-AI tier on a lead /
+// contacted / verified client. PATCHes the realtor-phase ClientAIPlan
+// (loan_id IS NULL) — same endpoint the desktop AgentLeadModal uses
+// for `lead_intake` + intake configuration. Backend accepts a
+// partial `ai_secretary_settings` body.
+
+export interface ClientNurtureSettings {
+  outreach_mode: "off" | "draft_first" | "portal_auto" | "portal_email" | "portal_email_sms";
+  default_cadence?: {
+    hours_between_attempts?: number;
+    max_attempts?: number;
+    quiet_hours_start?: string | null;
+    quiet_hours_end?: string | null;
+  } | null;
+}
+
+export function useSetClientNurture() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, settings }: { clientId: string; settings: Partial<ClientNurtureSettings> }) =>
+      fetcher<{ ok: boolean }>(
+        `/clients/${clientId}/ai-plan`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ ai_secretary_settings: settings }),
+        },
+      ),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["clientAIPlan", vars.clientId] });
+      qc.invalidateQueries({ queryKey: ["client", vars.clientId] });
+    },
+  });
+}
+
+export interface SendIntakeLinkResponse {
+  url: string;
+  sent_via: "portal" | "email" | "sms";
+  sent_at: string;
+}
+
+export function useSendIntakeLink() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, channel }: { clientId: string; channel?: "portal" | "email" | "sms" }) =>
+      fetcher<SendIntakeLinkResponse>(
+        `/clients/${clientId}/send-intake-link`,
+        {
+          method: "POST",
+          body: JSON.stringify({ channel: channel ?? null }),
+        },
+      ),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["engagement", vars.clientId] });
+      qc.invalidateQueries({ queryKey: ["client", vars.clientId] });
+    },
+  });
+}
