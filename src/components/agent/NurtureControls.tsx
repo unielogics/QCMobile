@@ -29,7 +29,6 @@ import {
 type CadencePreset = "gentle" | "standard" | "aggressive";
 
 // Maps a UI preset to the cadence-policy shape the backend expects.
-// Kept in sync with WizardSecretaryStep's preset semantics.
 const PRESET_CADENCE: Record<CadencePreset, { hours_between_attempts: number; max_attempts: number }> = {
   gentle:     { hours_between_attempts: 24 * 7, max_attempts: 4 },
   standard:   { hours_between_attempts: 48,     max_attempts: 12 },
