@@ -170,6 +170,20 @@ export function usePushTapHandler(): void {
         const data = resp?.notification?.request?.content?.data as
           | { kind?: string; thread_id?: string; loan_id?: string | null }
           | undefined;
+        // Phase 7.5 — loan_chat_message pushes fire when an operator,
+        // broker, or AI writes into a loan's workspace chat. Deep-link
+        // straight into the loan detail page's chat tab (workspace
+        // chat lives there, not in the AIChatSheet).
+        if (data?.kind === "loan_chat_message" && data.loan_id) {
+          router.push({
+            pathname: "/loan/[id]",
+            params: { id: data.loan_id, tab: "chat" },
+          });
+          return;
+        }
+        // Legacy: ai_chat_message pushes from the per-user AI thread
+        // system still deep-link into the AIChatSheet via the
+        // dashboard tab's `openThread` param.
         if (data?.kind === "ai_chat_message" && data.thread_id) {
           router.push({
             pathname: "/(tabs)",
