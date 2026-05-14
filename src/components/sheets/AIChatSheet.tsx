@@ -114,17 +114,47 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
     return map;
   }, [threads]);
 
-  // Sync prop → state. When the parent provides a thread, jump
-  // into it. When the parent clears it (or never provides one),
-  // reset to the list view so each fresh open lands on the list.
+  // Phase 7.5 — AIChatSheet is now account-AI-only. The previous list
+  // view (account + per-loan threads) caused confusion because per-loan
+  // threads live in `ai_chat_threads` (per-user AI) but operator
+  // workspace messages live in `loan_chat_messages` (different table) —
+  // users were tapping a "loan thread" here and not seeing the
+  // operator's message. Per-loan conversations now live ONLY on the
+  // loan detail page (/agent/loan/[id] or /loan/[id]?tab=chat), which
+  // reads workspace chat.
+  //
+  // Behavior here:
+  //  - initialThreadId present  → open that exact thread (legacy callers)
+  //  - initialThreadId absent   → find-or-create the account thread
+  //                                (loan_id=null) and land in it directly
   useEffect(() => {
+    if (!visible) return;
     if (initialThreadId) {
       setActiveThreadId(initialThreadId);
       setShowList(false);
-    } else {
-      setShowList(true);
+      return;
     }
-  }, [initialThreadId, visible]);
+    // Account thread might already be cached in `threads`. If so, use
+    // it; otherwise find-or-create.
+    if (accountThread?.id) {
+      setActiveThreadId(accountThread.id);
+      setShowList(false);
+      return;
+    }
+    let cancelled = false;
+    findOrCreate.mutateAsync({ loan_id: null })
+      .then((th) => {
+        if (cancelled) return;
+        setActiveThreadId(th.id);
+        setShowList(false);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Couldn't open the account thread.");
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialThreadId, visible, accountThread?.id]);
 
   // Auto-scroll the thread to the bottom when a new message lands or
   // the AI starts thinking.
@@ -335,10 +365,8 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
           );
         },
         onPanResponderRelease: (_, g) => {
-          if (g.dx > 60) {
-            if (!showList && !initialThreadId) setShowList(true);
-            else onClose();
-          }
+          // List view is gone; swipe-from-left-edge always closes.
+          if (g.dx > 60) onClose();
         },
       }),
     [showList, initialThreadId, onClose]
@@ -377,17 +405,8 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
             }}
           >
             <Pressable
-              onPress={() => {
-                // In chat view (and the sheet WASN'T locked to a single
-                // thread by initialThreadId) the left arrow goes back to
-                // the conversations list. Otherwise it closes the sheet.
-                if (!showList && !initialThreadId) {
-                  setShowList(true);
-                  return;
-                }
-                onClose();
-              }}
-              accessibilityLabel={!showList && !initialThreadId ? "Back to conversations" : "Close"}
+              onPress={onClose}
+              accessibilityLabel="Close"
               hitSlop={10}
               style={({ pressed }) => ({
                 width: 36, height: 36, borderRadius: 999,
@@ -396,11 +415,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
               })}
             >
               {/* Use arrowL — chevL is not in the icon registry. */}
-              <Icon
-                name={!showList && !initialThreadId ? "arrowL" : "x"}
-                size={18}
-                color={t.ink2}
-              />
+              <Icon name="x" size={18} color={t.ink2} />
             </Pressable>
             <View
               style={{
