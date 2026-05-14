@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, type Href } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
@@ -8,11 +8,21 @@ import { Icon } from "@/design-system/Icon";
 import { QC_FMT } from "@/design-system/tokens";
 import { TopBar } from "@/components/TopBar";
 import { DealHealthPill } from "@/components/agent/DealHealthPill";
-import { useClients, useLoans } from "@/hooks/useApi";
+import { FundingMetricsRow } from "@/components/agent/FundingMetricsRow";
+import { DealSecretaryBadge } from "@/components/agent/DealSecretaryBadge";
+import { ReassignAgentSheet } from "@/components/agent/ReassignAgentSheet";
+import { ContextMenu, type ContextMenuItem } from "@/components/agent/ContextMenu";
+import {
+  useClients,
+  useLoans,
+  useDealSecretarySummary,
+  useCurrentUser,
+} from "@/hooks/useApi";
 import { ClientStage, LoanStage, LoanStageOptions } from "@/lib/enums.generated";
 import type { Client, Loan } from "@/lib/types";
 
 type Mode = "files" | "leads";
+type Sort = "stage" | "amount_desc" | "closing_soonest" | "stuck_first";
 
 const RELATIONSHIP_STAGES: { value: ClientStage; label: string }[] = [
   { value: "lead", label: "New" },
@@ -23,25 +33,56 @@ const RELATIONSHIP_STAGES: { value: ClientStage; label: string }[] = [
   { value: "funded", label: "Closed" },
 ];
 
+// Phase 1: include funded as a terminal column to match desktop.
 const DEAL_STAGES: { value: LoanStage; label: string }[] = [
   { value: "prequalified", label: "Prequalified" },
   { value: "collecting_docs", label: "Collecting Docs" },
   { value: "lender_connected", label: "Lender Connected" },
   { value: "processing", label: "Processing" },
   { value: "closing", label: "Closing" },
+  { value: "funded", label: "Funded" },
 ];
 
 const STAGE_INDEX = new Map<LoanStage, number>(
   LoanStageOptions.map((o, index) => [o.value, index])
 );
 
+const SORTS: { value: Sort; label: string }[] = [
+  { value: "stage", label: "Stage" },
+  { value: "amount_desc", label: "Amount ↓" },
+  { value: "closing_soonest", label: "Closing soonest" },
+  { value: "stuck_first", label: "Stuck first" },
+];
+
 export function PipelineScreen() {
   const { t } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<Mode>("files");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<Sort>("stage");
+  const [reassignTarget, setReassignTarget] = useState<{ clientId: string; clientName: string; currentAgentId: string | null } | null>(null);
+  const [menuTarget, setMenuTarget] = useState<{ kind: "loan" | "client"; id: string; clientId: string; clientName: string; currentAgentId: string | null; address?: string } | null>(null);
   const { data: clients = [] } = useClients("mine");
   const { data: loans = [] } = useLoans("mine");
+  const { data: me } = useCurrentUser();
+  const isSuperAdmin = me?.role === "super_admin" || me?.role === "loan_exec";
+
+  // Deal-Secretary summary across the visible loans. Gated by
+  // BACKEND_HAS_DEAL_SECRETARY so off-flag returns empty/idle.
+  const loanIds = useMemo(() => loans.map((l) => l.id), [loans]);
+  const { data: dsSummary } = useDealSecretarySummary(loanIds);
+
+  const q = query.trim().toLowerCase();
+
+  const matchesQuery = (c: Client | undefined, l?: Loan) => {
+    if (!q) return true;
+    if (c && c.name.toLowerCase().includes(q)) return true;
+    if (c && c.city?.toLowerCase().includes(q)) return true;
+    if (l && l.address?.toLowerCase().includes(q)) return true;
+    if (l && l.deal_id?.toLowerCase().includes(q)) return true;
+    return false;
+  };
 
   const leadGroups = useMemo(() => {
     const activeByClient = new Map<string, number>();
@@ -51,21 +92,30 @@ export function PipelineScreen() {
     const m = new Map<ClientStage, (Client & { _stage: ClientStage; _activeFiles: number })[]>();
     for (const s of RELATIONSHIP_STAGES) m.set(s.value, []);
     for (const c of clients) {
+      if (!matchesQuery(c)) continue;
       const activeFiles = activeByClient.get(c.id) ?? 0;
       const stage = inferClientStage(c, activeFiles);
       if (m.has(stage)) m.get(stage)!.push({ ...c, _stage: stage, _activeFiles: activeFiles });
     }
     return m;
-  }, [clients, loans]);
+  }, [clients, loans, q]);
 
   const dealGroups = useMemo(() => {
-    const m = new Map<LoanStage, typeof loans>();
+    const clientById = new Map(clients.map((c) => [c.id, c]));
+    const m = new Map<LoanStage, Loan[]>();
     for (const s of DEAL_STAGES) m.set(s.value, []);
     for (const l of loans) {
-      if (l.stage !== "funded" && m.has(l.stage)) m.get(l.stage)!.push(l);
+      const c = clientById.get(l.client_id);
+      if (!matchesQuery(c, l)) continue;
+      if (m.has(l.stage)) m.get(l.stage)!.push(l);
+    }
+    // Apply sort within each stage group.
+    for (const [k, arr] of m.entries()) {
+      const sorted = sortLoans(arr, sort);
+      m.set(k, sorted);
     }
     return m;
-  }, [loans]);
+  }, [clients, loans, q, sort]);
 
   const clientById = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
   const activeFiles = useMemo(() => loans.filter((l) => l.stage !== "funded"), [loans]);
@@ -77,7 +127,7 @@ export function PipelineScreen() {
       <TopBar title="Pipeline" />
 
       <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 12 }}>
-        <Card pad={16} style={{ borderRadius: 16 }}>
+        <Card pad={16} style={{ borderRadius: 16 }} onPress={() => router.push("/agent/performance" as Href)}>
           <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
             <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: t.brandSoft, alignItems: "center", justifyContent: "center" }}>
               <Icon name="layers" size={19} color={t.brand} />
@@ -88,6 +138,7 @@ export function PipelineScreen() {
                 {activeFiles.length} active funding files · {QC_FMT.short(fileValue)} in motion · {relationshipCount} relationships
               </Text>
             </View>
+            <Icon name="chevR" size={16} color={t.ink4} />
           </View>
         </Card>
 
@@ -112,7 +163,58 @@ export function PipelineScreen() {
             );
           })}
         </View>
+
+        {/* Search */}
+        <View
+          style={{
+            flexDirection: "row", alignItems: "center", gap: 8,
+            paddingHorizontal: 12, paddingVertical: 8,
+            borderRadius: 10, borderWidth: 1, borderColor: t.line,
+            backgroundColor: t.surface2,
+          }}
+        >
+          <Icon name="search" size={14} color={t.ink3} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder={mode === "files" ? "Search address, deal id, client…" : "Search clients…"}
+            placeholderTextColor={t.ink4}
+            style={{ flex: 1, color: t.ink, fontSize: 13, padding: 0 }}
+          />
+          {query ? (
+            <Pressable onPress={() => setQuery("")} hitSlop={8} accessibilityLabel="Clear">
+              <Icon name="x" size={14} color={t.ink3} />
+            </Pressable>
+          ) : null}
+        </View>
+
+        {mode === "files" ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+            {SORTS.map((s) => {
+              const active = sort === s.value;
+              return (
+                <Pressable
+                  key={s.value}
+                  onPress={() => setSort(s.value)}
+                  style={{
+                    paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999,
+                    borderWidth: 1, borderColor: active ? t.brand : t.line,
+                    backgroundColor: active ? t.brandSoft : "transparent",
+                  }}
+                >
+                  <Text style={{ fontSize: 11.5, fontWeight: "700", color: active ? t.brand : t.ink2 }}>{s.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : null}
       </View>
+
+      {mode === "files" ? (
+        <View style={{ marginTop: 12 }}>
+          <FundingMetricsRow />
+        </View>
+      ) : null}
 
       <ScrollView
         contentContainerStyle={{ padding: 16, paddingTop: 12, gap: 18, paddingBottom: 104 + insets.bottom }}
@@ -136,7 +238,20 @@ export function PipelineScreen() {
                         amount={Number(l.amount || 0)}
                         health={l.deal_health ?? null}
                         stageIndex={STAGE_INDEX.get(l.stage) ?? 0}
+                        secretary={dsSummary?.[l.id]}
                         onPress={() => router.push(`/agent/loan/${l.id}` as Href)}
+                        onLongPress={
+                          isSuperAdmin && c
+                            ? () => setMenuTarget({
+                                kind: "loan",
+                                id: l.id,
+                                clientId: l.client_id,
+                                clientName: c.name,
+                                currentAgentId: c.current_agent_id ?? c.broker_id ?? null,
+                                address: l.address ?? undefined,
+                              })
+                            : undefined
+                        }
                       />
                     );
                   })}
@@ -154,6 +269,18 @@ export function PipelineScreen() {
                     <Pressable
                       key={c.id}
                       onPress={() => router.push(`/agent/client/${c.id}` as Href)}
+                      onLongPress={
+                        isSuperAdmin
+                          ? () => setMenuTarget({
+                              kind: "client",
+                              id: c.id,
+                              clientId: c.id,
+                              clientName: c.name,
+                              currentAgentId: c.current_agent_id ?? c.broker_id ?? null,
+                            })
+                          : undefined
+                      }
+                      delayLongPress={350}
                       style={({ pressed }) => ({
                         backgroundColor: t.surface, borderColor: t.line, borderWidth: 1, borderRadius: 14, padding: 14,
                         opacity: pressed ? 0.85 : 1,
@@ -206,8 +333,67 @@ export function PipelineScreen() {
         <Icon name="plus" size={16} color="#fff" />
         <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>New client</Text>
       </Pressable>
+
+      <ContextMenu
+        visible={!!menuTarget}
+        onClose={() => setMenuTarget(null)}
+        title="Card actions"
+        subtitle={menuTarget?.address ?? menuTarget?.clientName ?? null}
+        items={menuTargetItems(menuTarget, setReassignTarget)}
+      />
+
+      {reassignTarget ? (
+        <ReassignAgentSheet
+          visible
+          onClose={() => setReassignTarget(null)}
+          clientId={reassignTarget.clientId}
+          clientName={reassignTarget.clientName}
+          currentAgentId={reassignTarget.currentAgentId}
+        />
+      ) : null}
     </SafeAreaView>
   );
+}
+
+function menuTargetItems(
+  target: { kind: "loan" | "client"; clientId: string; clientName: string; currentAgentId: string | null } | null,
+  setReassignTarget: (v: { clientId: string; clientName: string; currentAgentId: string | null } | null) => void,
+): ContextMenuItem[] {
+  if (!target) return [];
+  return [
+    {
+      key: "reassign",
+      label: "Reassign agent",
+      sublabel: "Transfer this client to a different agent",
+      icon: "user",
+      onPress: () =>
+        setReassignTarget({
+          clientId: target.clientId,
+          clientName: target.clientName,
+          currentAgentId: target.currentAgentId,
+        }),
+    },
+  ];
+}
+
+function sortLoans(arr: Loan[], sort: Sort): Loan[] {
+  if (sort === "amount_desc") return [...arr].sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
+  if (sort === "closing_soonest")
+    return [...arr].sort((a, b) => {
+      const ax = a.close_date ? new Date(a.close_date).getTime() : Infinity;
+      const bx = b.close_date ? new Date(b.close_date).getTime() : Infinity;
+      return ax - bx;
+    });
+  if (sort === "stuck_first")
+    return [...arr].sort((a, b) => healthRank(b.deal_health) - healthRank(a.deal_health));
+  return arr;
+}
+
+function healthRank(h: Loan["deal_health"]): number {
+  if (h === "stuck") return 3;
+  if (h === "at_risk") return 2;
+  if (h === "on_track") return 1;
+  return 0;
 }
 
 function inferClientStage(client: Client, activeFiles: number): ClientStage {
@@ -260,19 +446,25 @@ function LoanFileRow({
   amount,
   health,
   stageIndex,
+  secretary,
   onPress,
+  onLongPress,
 }: {
   clientName?: string;
   address: string;
   amount: number;
   health: Loan["deal_health"];
   stageIndex: number;
+  secretary?: import("@/lib/mocks").DealSecretarySummary;
   onPress: () => void;
+  onLongPress?: () => void;
 }) {
   const { t } = useTheme();
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={350}
       style={({ pressed }) => ({
         backgroundColor: t.surface,
         borderColor: t.line,
@@ -303,6 +495,7 @@ function LoanFileRow({
             <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink }}>{QC_FMT.short(amount)}</Text>
             <DealHealthPill health={health} />
             <StageBadge stage={stageIndex} />
+            <DealSecretaryBadge summary={secretary} />
           </View>
         </View>
         <Icon name="chevR" size={14} color={t.ink4} />

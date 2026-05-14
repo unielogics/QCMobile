@@ -16,22 +16,24 @@ export function Card({
   style?: StyleProp<ViewStyle>;
 }) {
   const { t, isDark } = useTheme();
+  const baseStyle: ViewStyle = {
+    backgroundColor: t.surface,
+    borderColor: t.line,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: pad,
+    shadowColor: isDark ? "transparent" : "#0B1629",
+    shadowOpacity: isDark ? 0 : 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  };
   if (onPress) {
     return (
       <Pressable
         onPress={onPress}
-        style={[
-          {
-            backgroundColor: t.surface,
-            borderColor: t.line,
-            borderWidth: 1,
-            borderRadius: 18,
-            padding: pad,
-            shadowColor: isDark ? "transparent" : "#0B1629",
-            shadowOpacity: isDark ? 0 : 0.06,
-            shadowRadius: 12,
-            shadowOffset: { width: 0, height: 4 },
-          },
+        style={({ pressed }) => [
+          baseStyle,
+          pressed ? { borderColor: t.lineStrong, opacity: 0.92 } : null,
           style,
         ]}
       >
@@ -39,25 +41,63 @@ export function Card({
       </Pressable>
     );
   }
+  return <View style={[baseStyle, style]}>{children}</View>;
+}
+
+// Tappable container with a chevron affordance — replaces ad-hoc
+// `<Pressable><Card>` pairs across the cockpit. Use this wherever
+// a card is supposed to drill down into something. The chevron
+// shows up by default; pass `trailing={null}` to suppress it (e.g.
+// when the card already has its own trailing action).
+export function TappableCard({
+  children,
+  onPress,
+  pad = 18,
+  trailing,
+  accessibilityLabel,
+  style,
+}: {
+  children: ReactNode;
+  onPress: () => void;
+  pad?: number;
+  trailing?: ReactNode | null;
+  accessibilityLabel?: string;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const { t, isDark } = useTheme();
+  const baseStyle: ViewStyle = {
+    backgroundColor: t.surface,
+    borderColor: t.line,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: pad,
+    shadowColor: isDark ? "transparent" : "#0B1629",
+    shadowOpacity: isDark ? 0 : 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  };
+  const showChev = trailing === undefined;
   return (
-    <View
-      style={[
-        {
-          backgroundColor: t.surface,
-          borderColor: t.line,
-          borderWidth: 1,
-          borderRadius: 18,
-          padding: pad,
-          shadowColor: isDark ? "transparent" : "#0B1629",
-          shadowOpacity: isDark ? 0 : 0.06,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: 4 },
-        },
+    <Pressable
+      onPress={onPress}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        baseStyle,
+        pressed ? { borderColor: t.lineStrong, opacity: 0.92 } : null,
         style,
       ]}
     >
-      {children}
-    </View>
+      <View style={{ flex: 1, minWidth: 0 }}>{children}</View>
+      {trailing === null ? null : showChev ? (
+        <Icon name="chevR" size={16} color={t.ink4} />
+      ) : (
+        trailing
+      )}
+    </Pressable>
   );
 }
 

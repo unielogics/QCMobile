@@ -90,15 +90,40 @@ export function TodayScreen() {
         <View>
           <SectionLabel>At a glance</SectionLabel>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            <KpiTile label="New leads (7d)" value={funnel.leads_this_week} />
-            <KpiTile label="Active pipeline" value={activePipeline} />
-            <KpiTile label="Stuck" value={stuck.length} accent={stuck.length ? "danger" : "neutral"} />
-            <KpiTile label="Closing ≤30d" value={closingSoon.length} accent={closingSoon.length ? "profit" : "neutral"} />
+            <KpiTile
+              label="New leads (7d)"
+              value={funnel.leads_this_week}
+              onPress={() => router.push("/agent/(tabs)/pipeline?mode=leads" as Href)}
+            />
+            <KpiTile
+              label="Active pipeline"
+              value={activePipeline}
+              onPress={() => router.push("/agent/(tabs)/pipeline" as Href)}
+            />
+            <KpiTile
+              label="Stuck"
+              value={stuck.length}
+              accent={stuck.length ? "danger" : "neutral"}
+              onPress={() => router.push("/agent/(tabs)/pipeline?filter=stuck" as Href)}
+            />
+            <KpiTile
+              label="Closing ≤30d"
+              value={closingSoon.length}
+              accent={closingSoon.length ? "profit" : "neutral"}
+              onPress={() => router.push("/agent/(tabs)/pipeline?filter=closing30" as Href)}
+            />
           </View>
         </View>
 
         <View>
-          <SectionLabel>Rates today</SectionLabel>
+          <SectionLabel action={
+            <Text
+              onPress={() => router.push("/agent/rates" as Href)}
+              style={{ fontSize: 11, fontWeight: "700", color: t.brand, letterSpacing: 0.4 }}
+            >
+              VIEW ALL ›
+            </Text>
+          }>Rates today</SectionLabel>
           <AgentRateGrid />
         </View>
 

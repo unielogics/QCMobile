@@ -19,7 +19,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -34,6 +33,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
+import { KeyboardAware } from "@/components/KeyboardAware";
 import {
   useAIChatThread,
   useAIChatThreads,
@@ -362,11 +362,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
           paddingTop: Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0,
         }}
       >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={0}
-        >
+        <KeyboardAware excludeTabBar>
           {/* Header bar */}
           <View
             style={{
@@ -709,7 +705,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
               </View>
             </View>
           )}
-        </KeyboardAvoidingView>
+        </KeyboardAware>
       </View>
     </Modal>
   );
