@@ -18,7 +18,20 @@ export function CriteriaTab({ loanId }: { loanId: string }) {
       </Card>
     );
   }
-  if (!data) return null;
+  if (!data) {
+    // No criteria written yet for this loan. Show an explicit empty
+    // state instead of rendering nothing — otherwise the tab body
+    // looks blank and brokers wonder if it's broken.
+    return (
+      <Card pad={18}>
+        <SectionLabel>Loan criteria</SectionLabel>
+        <Text style={{ color: t.ink3, fontSize: 13, lineHeight: 18, marginTop: 4 }}>
+          No criteria set on this loan yet. Underwriting will fill these in once the file is in
+          progress.
+        </Text>
+      </Card>
+    );
+  }
   const rows: Array<[string, string]> = [
     ["Loan amount", data.loan_amount != null ? QC_FMT.short(data.loan_amount) : "—"],
     ["LTV", data.ltv != null ? `${(data.ltv * 100).toFixed(1)}%` : "—"],

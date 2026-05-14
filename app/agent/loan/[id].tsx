@@ -91,6 +91,16 @@ export default function AgentLoanRoute() {
   const viewerRole = (me?.role === "super_admin" || me?.role === "loan_exec" || me?.role === "broker")
     ? me.role
     : "broker";
+  // Activity scope: brokers only see their own actions (what they
+  // did on this deal). Super-admin / loan_exec see the full audit
+  // feed. Filtered client-side because /loans/{id}/activity doesn't
+  // expose a scope= parameter yet.
+  const visibleActivity = viewerRole === "broker"
+    ? activity.filter((a) => a.actor_id != null && me?.id != null && a.actor_id === me.id)
+    : activity;
+  // Hide the Lender tab from brokers — the lender conversation is
+  // an ops-only surface. Super-admin / loan_exec keep it.
+  const visibleTabs = TABS.filter((tt) => tt.value !== "lender" || viewerRole !== "broker");
 
   if (!loan) {
     return (
@@ -143,7 +153,7 @@ export default function AgentLoanRoute() {
         style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: t.line }}
         contentContainerStyle={{ paddingHorizontal: 12, gap: 6, paddingVertical: 8 }}
       >
-        {TABS.map((tt) => {
+        {visibleTabs.map((tt) => {
           const active = tab === tt.value;
           return (
             <Pressable
@@ -195,7 +205,7 @@ export default function AgentLoanRoute() {
           </ScrollView>
         ) : tab === "hud" ? (
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomPad }}>
-            <HudTab loanId={loan.id} />
+            <HudTab loanId={loan.id} loanAmount={Number(loan.amount || 0)} />
           </ScrollView>
         ) : tab === "messages" ? (
           <LoanMessagesTab loanId={loan.id} viewerRole={viewerRole} />
@@ -207,13 +217,17 @@ export default function AgentLoanRoute() {
           <LenderChatTab loanId={loan.id} bottomPad={bottomPad} />
         ) : tab === "activity" ? (
           <ScrollView contentContainerStyle={{ padding: 16, gap: 8, paddingBottom: bottomPad }}>
-            {activity.length === 0 ? (
+            {visibleActivity.length === 0 ? (
               <Card pad={18}>
-                <Text style={{ fontSize: 13, color: t.ink3 }}>No activity recorded yet.</Text>
+                <Text style={{ fontSize: 13, color: t.ink3 }}>
+                  {viewerRole === "broker"
+                    ? "You haven't taken any actions on this deal yet."
+                    : "No activity recorded yet."}
+                </Text>
               </Card>
             ) : (
               <Card pad={14}>
-                {activity.map((a, i, arr) => (
+                {visibleActivity.map((a, i, arr) => (
                   <View
                     key={a.id}
                     style={{ paddingVertical: 8, borderBottomColor: t.line, borderBottomWidth: i < arr.length - 1 ? 1 : 0 }}
