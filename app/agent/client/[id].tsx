@@ -9,6 +9,8 @@ import { LoanSnapshotCard } from "@/components/LoanSnapshotCard";
 import { DocumentRequestList } from "@/components/DocumentRequestList";
 import { RealtorReadinessCard } from "@/components/RealtorReadinessCard";
 import { ClientAIPlanCard } from "@/components/ClientAIPlanCard";
+import { NurtureControls } from "@/components/agent/NurtureControls";
+import { NurtureActivity } from "@/components/agent/NurtureActivity";
 import { useClient, useCurrentUser, useDocuments, useEngagement, useFindOrCreateChatThread, useLoans, useRequestPrequalification, useStartFunding, useUpdateClientStage } from "@/hooks/useApi";
 import { PauseBanner } from "@/components/loan/PauseBanner";
 import { ContextMenu, type ContextMenuItem } from "@/components/agent/ContextMenu";
@@ -252,6 +254,22 @@ export default function AgentClientRoute() {
             </View>
           </View>
         </Card>
+
+        {/* Phase 7 nurture surface — only when this client is still in
+            the realtor-phase lifecycle (lead / contacted / verified).
+            After handoff to lending the nurture controls collapse
+            because the Pipeline AI takes over (per the two-tier
+            architecture in the plan). */}
+        {client.stage === "lead" || client.stage === "contacted" || client.stage === "verified" ? (
+          <>
+            <NurtureControls
+              clientId={client.id}
+              hasPhone={!!client.phone}
+              hasEmail={!!client.email}
+            />
+            <NurtureActivity clientId={client.id} />
+          </>
+        ) : null}
 
         {/* Active AI Plan card (alembic 0032). Trumps the legacy
             missing_facts walk; renders the playbook-resolved active

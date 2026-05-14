@@ -1,3 +1,25 @@
+// Mobile new-client wizard — Phase 7 parity with QCDashboard's
+// AgentLeadModal (5-step wizard). Always creates a Client at
+// stage="lead"; never creates a Loan.
+//
+// Step layout (matches desktop):
+//   1. Lead       — side, name/email/phone, lead source/temp, financing
+//                   support, contact permission, relationship_context,
+//                   inline dedup search.
+//   2. Property   — buyer property status + address + property_type +
+//                   optional owned-assets multi-row editor (buyer).
+//                   Seller: address always required + property_type.
+//   3. Numbers    — buyer: budget / deposit / liquidity / timeline.
+//                   seller: listing price / list+close dates.
+//   4. AI Cadence — cadence preset (gentle / standard / aggressive)
+//                   sent as `wizard-intent` after Client create.
+//   5. Handoff    — handoff note + Save / Save+Invite.
+//
+// Submit flow:
+//   POST /clients  → create the Client row (stage="lead")
+//   POST /clients/{id}/deal-secretary/wizard-intent  → buffer cadence
+//   route to /agent/client/{newId}
+
 import { useState } from "react";
 import {
   Alert,
@@ -14,21 +36,11 @@ import { useRouter, type Href } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Card } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
-import { useCreateClient } from "@/hooks/useApi";
-
-// Mobile mirror of QCDashboard's AgentLeadModal — 4-step lead capture
-// for agents (BROKER role). Always creates a Client at stage="lead";
-// never creates a Loan. The funding-team handoff happens later via
-// "Ready for Prequalification" on /agent/client/[id] (or via the AI
-// Secretary card in AIChatSheet).
-//
-// Steps mirror the desktop:
-//   1. Lead     — side, name/email/phone, lead source/temperature,
-//                 financing-support-needed, contact permission
-//   2. Property — address (optional for buyers still searching)
-//   3. Numbers  — buyer: budget + deposit + liquidity + timeline
-//                 seller: listing price + dates
-//   4. Handoff  — cadence preset + handoff note + Save / Save+Invite
+import { useBufferWizardIntent, useCreateClient } from "@/hooks/useApi";
+import { ClientSearchBlock } from "@/components/agent/ClientSearchBlock";
+import { OwnedAssetsEditor, NEW_ASSET, type OwnedAsset } from "@/components/agent/OwnedAssetsEditor";
+import { WizardSecretaryStep, type CadencePreset } from "@/components/agent/WizardSecretaryStep";
+import type { RelationshipContext } from "@/lib/types";
 
 type Side = "buyer" | "seller";
 
@@ -42,13 +54,16 @@ interface LeadDraft {
   leadTemperature: "hot" | "warm" | "nurture";
   financingSupportNeeded: "yes" | "maybe" | "no" | "unknown";
   contactPermission: "send_invite_now" | "save_lead_only" | "agent_will_introduce_first";
-  relationshipContext: string;
+  relationshipContext: RelationshipContext;
 
-  // Step 2 — buyer can be still-searching (no address)
+  // Step 2
   propertyStatus: "selected" | "still_searching" | "multiple";
   propertyAddress: string;
   propertyCity: string;
   propertyState: string;
+  propertyType: PropertyType;
+  buyerOwnsProperties: boolean;
+  ownedAssets: OwnedAsset[];
 
   // Step 3
   priceMode: "exact" | "range";
@@ -63,9 +78,18 @@ interface LeadDraft {
   targetListDate: string;
 
   // Step 4
-  cadencePreset: "gentle" | "standard" | "aggressive";
+  cadencePreset: CadencePreset;
+
+  // Step 5
   handoffNote: string;
 }
+
+type PropertyType =
+  | "single_family"
+  | "two_to_four_units"
+  | "five_to_eight_units"
+  | "mixed_use"
+  | "commercial";
 
 const INITIAL: LeadDraft = {
   side: "buyer",
@@ -82,6 +106,9 @@ const INITIAL: LeadDraft = {
   propertyAddress: "",
   propertyCity: "",
   propertyState: "",
+  propertyType: "single_family",
+  buyerOwnsProperties: false,
+  ownedAssets: [],
 
   priceMode: "exact",
   purchasePrice: "",
@@ -102,6 +129,7 @@ const STEPS = [
   { id: "lead", label: "Lead" },
   { id: "property", label: "Property" },
   { id: "numbers", label: "Numbers" },
+  { id: "cadence", label: "Cadence" },
   { id: "handoff", label: "Handoff" },
 ] as const;
 
@@ -115,6 +143,22 @@ const LEAD_SOURCES: { value: string; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 
+const RELATIONSHIP_CONTEXTS: { value: RelationshipContext; label: string }[] = [
+  { value: "new_lead", label: "New lead" },
+  { value: "existing_client", label: "Existing client" },
+  { value: "past_client", label: "Past client" },
+  { value: "referral_from_other", label: "Referral from other" },
+  { value: "other", label: "Other" },
+];
+
+const PROPERTY_TYPES: { value: PropertyType; label: string }[] = [
+  { value: "single_family", label: "Single family" },
+  { value: "two_to_four_units", label: "2-4 units" },
+  { value: "five_to_eight_units", label: "5-8 units" },
+  { value: "mixed_use", label: "Mixed use" },
+  { value: "commercial", label: "Commercial" },
+];
+
 const TIMELINE_OPTIONS: { value: string; label: string }[] = [
   { value: "asap", label: "ASAP" },
   { value: "0_30", label: "0-30 days" },
@@ -126,6 +170,7 @@ export default function AgentAddLeadRoute() {
   const { t } = useTheme();
   const router = useRouter();
   const create = useCreateClient();
+  const bufferIntent = useBufferWizardIntent();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<LeadDraft>(INITIAL);
 
@@ -134,8 +179,9 @@ export default function AgentAddLeadRoute() {
 
   const canAdvance = (): boolean => {
     if (step === 0) {
-      // Email mandatory, phone optional. Mirrors desktop AgentLeadModal.
-      return draft.name.trim().length > 0 && draft.email.trim().includes("@");
+      // Mirror desktop: name + at least one of email/phone.
+      const hasContact = draft.email.trim().length > 0 || draft.phone.trim().length > 0;
+      return draft.name.trim().length > 0 && hasContact;
     }
     if (step === 1) {
       // Sellers need an address; buyers can be "still searching".
@@ -152,7 +198,7 @@ export default function AgentAddLeadRoute() {
         intent === "save_and_invite" ? "send_invite_now" : draft.contactPermission;
       const created = await create.mutateAsync({
         name: draft.name.trim(),
-        email: draft.email.trim(),
+        email: draft.email.trim() || undefined,
         phone: draft.phone.trim() || undefined,
         stage: "lead",
         client_type: draft.side,
@@ -164,6 +210,18 @@ export default function AgentAddLeadRoute() {
         relationship_context: draft.relationshipContext,
         source_channel: "agent_mobile",
       });
+      // Buffer the cadence preset so the backend materializes it into
+      // real AITaskAssignment rows when the cadence engine fires for
+      // this client. Non-blocking: even if this errors, the Client row
+      // is saved and the broker isn't stuck on the wizard.
+      try {
+        await bufferIntent.mutateAsync({
+          clientId: created.id,
+          body: { cadence_preset: draft.cadencePreset },
+        });
+      } catch {
+        /* swallow — cadence can be set later from the client page */
+      }
       router.replace(`/agent/client/${created.id}` as Href);
     } catch (e) {
       Alert.alert("Couldn't save lead", e instanceof Error ? e.message : undefined);
@@ -174,7 +232,7 @@ export default function AgentAddLeadRoute() {
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top", "bottom"]}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, gap: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
         <Pressable onPress={() => (step === 0 ? router.back() : setStep((s) => s - 1))} hitSlop={8}>
-          <Icon name={step === 0 ? "x" : "x"} size={18} color={t.ink} />
+          <Icon name="x" size={18} color={t.ink} />
         </Pressable>
         <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink, flex: 1 }}>
           New Lead · {draft.side === "seller" ? "Listing" : "Purchase"}
@@ -193,10 +251,23 @@ export default function AgentAddLeadRoute() {
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={{ padding: 14, gap: 12, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
-          {step === 0 && <LeadStepView t={t} draft={draft} update={update} />}
+          {step === 0 && (
+            <LeadStepView
+              t={t}
+              draft={draft}
+              update={update}
+              onPickExisting={(c) => router.replace(`/agent/client/${c.id}` as Href)}
+            />
+          )}
           {step === 1 && <PropertyStepView t={t} draft={draft} update={update} />}
           {step === 2 && <NumbersStepView t={t} draft={draft} update={update} />}
-          {step === 3 && <HandoffStepView t={t} draft={draft} update={update} />}
+          {step === 3 && (
+            <WizardSecretaryStep
+              value={draft.cadencePreset}
+              onChange={(v) => update("cadencePreset", v)}
+            />
+          )}
+          {step === 4 && <HandoffStepView t={t} draft={draft} update={update} />}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -254,7 +325,12 @@ interface StepProps {
   update: <K extends keyof LeadDraft>(k: K, v: LeadDraft[K]) => void;
 }
 
-function LeadStepView({ t, draft, update }: StepProps) {
+function LeadStepView({
+  t,
+  draft,
+  update,
+  onPickExisting,
+}: StepProps & { onPickExisting: (c: import("@/lib/types").Client) => void }) {
   return (
     <Card pad={14}>
       <SectionLabel t={t}>Listing or Purchase?</SectionLabel>
@@ -273,7 +349,7 @@ function LeadStepView({ t, draft, update }: StepProps) {
       <Field t={t} label="Name" required>
         <Input t={t} value={draft.name} onChangeText={(v) => update("name", v)} placeholder="Marcus Holloway" />
       </Field>
-      <Field t={t} label="Email" required>
+      <Field t={t} label="Email">
         <Input
           t={t}
           value={draft.email}
@@ -290,6 +366,29 @@ function LeadStepView({ t, draft, update }: StepProps) {
           onChangeText={(v) => update("phone", v)}
           placeholder="(917) 555-0148"
           keyboardType="phone-pad"
+        />
+      </Field>
+      <Text style={{ fontSize: 11, color: t.ink3, lineHeight: 16, marginTop: -4, marginBottom: 8 }}>
+        Provide at least one — email or phone. Both is fine too.
+      </Text>
+
+      {/* Inline dedup search — surfaces any clients already in the broker's
+          book that match the name/email/phone the broker is typing. */}
+      <ClientSearchBlock
+        name={draft.name}
+        email={draft.email}
+        phone={draft.phone}
+        onPickExisting={onPickExisting}
+      />
+
+      <View style={{ height: 12 }} />
+
+      <Field t={t} label="Relationship">
+        <PillRow
+          t={t}
+          value={draft.relationshipContext}
+          onChange={(v) => update("relationshipContext", v as RelationshipContext)}
+          options={RELATIONSHIP_CONTEXTS}
         />
       </Field>
 
@@ -357,7 +456,7 @@ function PropertyStepView({ t, draft, update }: StepProps) {
             t={t}
             options={[
               { value: "selected", label: "Selected" },
-              { value: "still_searching", label: "Still searching" },
+              { value: "still_searching", label: "Searching" },
               { value: "multiple", label: "Multiple" },
             ]}
             value={draft.propertyStatus}
@@ -387,10 +486,49 @@ function PropertyStepView({ t, draft, update }: StepProps) {
           </Field>
         </>
       ) : (
-        <Text style={{ fontSize: 12.5, color: t.ink3, lineHeight: 19 }}>
-          The buyer doesn't have a target property yet. We'll add address details
-          once they pick one.
+        <Text style={{ fontSize: 12.5, color: t.ink3, lineHeight: 19, marginBottom: 12 }}>
+          The buyer doesn't have a target property yet. We'll add address
+          details once they pick one.
         </Text>
+      )}
+
+      <Field t={t} label="Property type">
+        <PillRow
+          t={t}
+          value={draft.propertyType}
+          onChange={(v) => update("propertyType", v as PropertyType)}
+          options={PROPERTY_TYPES}
+        />
+      </Field>
+
+      {draft.side === "buyer" && (
+        <>
+          <View style={{ height: 4 }} />
+          <SectionLabel t={t}>Other properties owned</SectionLabel>
+          <SegmentedRow
+            t={t}
+            options={[
+              { value: "no", label: "None" },
+              { value: "yes", label: "Yes — I'll list them" },
+            ]}
+            value={draft.buyerOwnsProperties ? "yes" : "no"}
+            onChange={(v) => {
+              const owns = v === "yes";
+              update("buyerOwnsProperties", owns);
+              if (owns && draft.ownedAssets.length === 0) {
+                update("ownedAssets", [{ ...NEW_ASSET }]);
+              }
+            }}
+          />
+          {draft.buyerOwnsProperties && (
+            <View style={{ marginTop: 10 }}>
+              <OwnedAssetsEditor
+                assets={draft.ownedAssets}
+                onChange={(next) => update("ownedAssets", next)}
+              />
+            </View>
+          )}
+        </>
       )}
     </Card>
   );
@@ -478,18 +616,6 @@ function NumbersStepView({ t, draft, update }: StepProps) {
 function HandoffStepView({ t, draft, update }: StepProps) {
   return (
     <Card pad={14}>
-      <Field t={t} label="AI cadence preset">
-        <SegmentedRow
-          t={t}
-          options={[
-            { value: "gentle", label: "Gentle" },
-            { value: "standard", label: "Standard" },
-            { value: "aggressive", label: "Aggressive" },
-          ]}
-          value={draft.cadencePreset}
-          onChange={(v) => update("cadencePreset", v as LeadDraft["cadencePreset"])}
-        />
-      </Field>
       <Field t={t} label="Handoff note (anything the funding team should know?)">
         <Input
           t={t}
@@ -502,7 +628,7 @@ function HandoffStepView({ t, draft, update }: StepProps) {
       <Text style={{ fontSize: 11, color: t.ink3, lineHeight: 16, marginTop: 4 }}>
         After save, fire "Ready for Prequalification" on the client page — or
         ask your AI Secretary — when you're ready to hand off to the funding
-        team.
+        team. The cadence preset you picked starts nurturing immediately.
       </Text>
     </Card>
   );
@@ -518,8 +644,9 @@ function buildLeadIntake(draft: LeadDraft): Record<string, unknown> {
           address: draft.propertyAddress.trim(),
           city: draft.propertyCity.trim(),
           state: draft.propertyState.trim().toUpperCase(),
+          type: draft.propertyType,
         }
-      : { status: draft.propertyStatus };
+      : { status: draft.propertyStatus, type: draft.propertyType };
 
   const numbers =
     draft.side === "seller"
@@ -539,9 +666,24 @@ function buildLeadIntake(draft: LeadDraft): Record<string, unknown> {
           target_close_date: draft.targetCloseDate || null,
         };
 
+  const owned_assets =
+    draft.side === "buyer" && draft.buyerOwnsProperties && draft.ownedAssets.length > 0
+      ? draft.ownedAssets
+          .filter((a) => a.address.trim().length > 0)
+          .map((a) => ({
+            address: a.address.trim(),
+            city: a.city.trim(),
+            state: a.state.trim().toUpperCase(),
+            use: a.use,
+            value: parseDollars(a.value),
+            balance_owed: parseDollars(a.balanceOwed),
+          }))
+      : [];
+
   return {
     property,
     numbers,
+    owned_assets,
     handoff_note: draft.handoffNote.trim() || null,
     cadence_preset: draft.cadencePreset,
   };
@@ -654,8 +796,6 @@ function SegmentedRow({
   );
 }
 
-// Wrappable pill row for select-from-many (lead source, financing
-// support, etc.). Pills wrap to a second row when they don't fit.
 function PillRow({
   t, options, value, onChange,
 }: {

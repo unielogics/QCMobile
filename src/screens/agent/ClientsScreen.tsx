@@ -1,9 +1,16 @@
+// Broker Clients tab.
+//
+// Phase 7 redesign — the contact-creation flow is the headline action of
+// this tab, not a FAB tucked at the bottom-right. The screen now reads
+// top-to-bottom as: header → "Add a new client" hero CTA → stats chips
+// → search/filter → client list.
+
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, type Href } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
-import { Avatar, Card, Pill } from "@/design-system/primitives";
+import { Avatar, Card, Pill, TappableCard } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
 import { TopBar } from "@/components/TopBar";
 import { StageFilterChips } from "@/components/agent/StageFilterChips";
@@ -34,23 +41,80 @@ export function ClientsScreen() {
     });
   }, [clients, query, stage]);
 
+  const goNew = () => router.push("/agent/client/new" as Href);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
       <TopBar title="Clients" />
-      <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 12 }}>
-        <Card pad={16} style={{ borderRadius: 16 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: t.petrolSoft, alignItems: "center", justifyContent: "center" }}>
-              <Icon name="user" size={18} color={t.petrol} />
+
+      {/* Local sub-header pill — discoverable when the user has scrolled past
+          the hero CTA. Lives inside ClientsScreen only; does NOT touch the
+          shared <TopBar> API (which is consumed by other tabs). */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingHorizontal: 16,
+          paddingTop: 4,
+          paddingBottom: 8,
+        }}
+      >
+        <Text style={{ fontSize: 11, fontWeight: "700", color: t.ink3, letterSpacing: 1.4, textTransform: "uppercase" }}>
+          Your book
+        </Text>
+        <Pressable
+          onPress={goNew}
+          accessibilityLabel="Add a new client"
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 5,
+            paddingVertical: 6,
+            paddingHorizontal: 10,
+            borderRadius: 999,
+            backgroundColor: pressed ? t.brand : t.brandSoft,
+          })}
+        >
+          <Icon name="plus" size={12} color={t.brand} />
+          <Text style={{ fontSize: 11.5, fontWeight: "800", color: t.brand, letterSpacing: 0.3 }}>NEW CLIENT</Text>
+        </Pressable>
+      </View>
+
+      <View style={{ paddingHorizontal: 16, gap: 10 }}>
+        {/* Hero CTA — replaces the previous "Client book" summary card. */}
+        <TappableCard onPress={goNew} accessibilityLabel="Add a new client">
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+            <View
+              style={{
+                width: 46,
+                height: 46,
+                borderRadius: 13,
+                backgroundColor: t.brand,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Icon name="plus" size={22} color="#fff" stroke={2.6} />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ fontSize: 18, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }}>Client book</Text>
-              <Text style={{ fontSize: 12, color: t.ink3, marginTop: 3 }} numberOfLines={1}>
-                {clients.length} total · {activeClients} active · {leadClients} new leads
+              <Text style={{ fontSize: 17, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }}>
+                Add a new client
+              </Text>
+              <Text style={{ fontSize: 12, color: t.ink3, marginTop: 3, lineHeight: 17 }} numberOfLines={2}>
+                Capture a lead, run the intake, hand off to lending when ready.
               </Text>
             </View>
           </View>
-        </Card>
+        </TappableCard>
+
+        {/* Stats demoted to a thin chip row. */}
+        <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+          <Pill bg={t.chip} color={t.ink2}>{clients.length} total</Pill>
+          <Pill bg={t.brandSoft} color={t.brand}>{activeClients} active</Pill>
+          <Pill bg={t.petrolSoft} color={t.petrol}>{leadClients} new leads</Pill>
+        </View>
+
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: t.surface2, borderRadius: 10, paddingHorizontal: 12 }}>
           <Icon name="search" size={16} color={t.ink3} />
           <TextInput
@@ -63,11 +127,12 @@ export function ClientsScreen() {
             autoCorrect={false}
           />
           {query ? (
-            <Pressable onPress={() => setQuery("")}>
+            <Pressable onPress={() => setQuery("")} accessibilityLabel="Clear search">
               <Icon name="x" size={14} color={t.ink3} />
             </Pressable>
           ) : null}
         </View>
+
         <StageFilterChips
           options={ClientStageOptions as ReadonlyArray<{ value: ClientStage; label: string }>}
           selected={stage}
@@ -75,13 +140,16 @@ export function ClientsScreen() {
         />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 104 + insets.bottom }}>
+      <ScrollView
+        contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 24 + insets.bottom }}
+        keyboardShouldPersistTaps="handled"
+      >
         {isLoading && clients.length === 0 ? (
           <Card pad={18}><Text style={{ fontSize: 13, color: t.ink3 }}>Loading…</Text></Card>
         ) : filtered.length === 0 ? (
           <Card pad={18}>
             <Text style={{ fontSize: 13, color: t.ink2 }}>
-              {query || stage ? "No clients match this filter." : "No clients in your book yet — add one to get started."}
+              {query || stage ? "No clients match this filter." : "No clients in your book yet — tap “Add a new client” above to get started."}
             </Text>
           </Card>
         ) : (
@@ -114,22 +182,6 @@ export function ClientsScreen() {
           ))
         )}
       </ScrollView>
-
-      <Pressable
-        onPress={() => router.push("/agent/client/new" as Href)}
-        style={({ pressed }) => ({
-          position: "absolute", right: 18, bottom: 20 + insets.bottom,
-          backgroundColor: t.brand,
-          paddingVertical: 13, paddingHorizontal: 18,
-          borderRadius: 999,
-          flexDirection: "row", alignItems: "center", gap: 6,
-          shadowColor: "#0B1629", shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 4 },
-          opacity: pressed ? 0.85 : 1,
-        })}
-      >
-        <Icon name="plus" size={16} color="#fff" />
-        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>New client</Text>
-      </Pressable>
     </SafeAreaView>
   );
 }
