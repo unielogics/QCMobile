@@ -962,6 +962,50 @@ export function useCreateClient() {
   });
 }
 
+// Create a loan-file (Pipeline tab) for an existing client. POSTs to
+// /intake — backend finds-or-creates the client by email and originates
+// a Loan with property + ask + AI cadence. Brokers are allowed at this
+// endpoint (only CLIENT is blocked).
+export function useCreateLoanFile() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      borrower: { name: string; email: string; phone: string };
+      asset: {
+        address: string;
+        city: string | null;
+        state: string | null;
+        property_type: string;
+      };
+      numbers: {
+        type: string;
+        amount: number;
+        ltv: number;
+        base_rate: number;
+      };
+      ai_rules: {
+        floor_rate: number;
+        max_buy_down_points?: number;
+        require_soft_pull?: boolean;
+        auto_send_terms?: boolean;
+        doc_auto_verify?: boolean;
+        escalation_delta_bps?: number;
+        notify_channel?: string;
+        intro_message?: string | null;
+      };
+    }) =>
+      fetcher<{ loan_id: string }>("/intake", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["loans"] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
+}
+
 // Hand a lead off to the funding team for prequalification review.
 // Backend creates a PrequalRequest from Client.lead_intake JSONB +
 // spawns an AITask in the funding-team queue. Used by:

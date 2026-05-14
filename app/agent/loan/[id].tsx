@@ -80,8 +80,9 @@ export default function AgentLoanRoute() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const bottomPad = BOTTOM_BAR_PAD + insets.bottom;
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const [tab, setTab] = useState<Tab>("snapshot");
+  const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
+  const initialTab: Tab = (TABS.find((t) => t.value === tabParam)?.value ?? "snapshot") as Tab;
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [copied, setCopied] = useState(false);
 
   const { data: loan } = useLoan(id);

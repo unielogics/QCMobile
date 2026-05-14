@@ -59,9 +59,10 @@ type TabId = typeof TABS[number]["id"];
 export default function LoanFile() {
   const { t, isDark } = useTheme();
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
   const { data: loan } = useLoan(id);
-  const [tab, setTab] = useState<TabId>("activity");
+  const initialTab: TabId = (TABS.find((t) => t.id === tabParam)?.id ?? "activity") as TabId;
+  const [tab, setTab] = useState<TabId>(initialTab);
 
   if (!loan) {
     return (

@@ -15,7 +15,7 @@
 // This file is safe to import on iOS too — Device.isDevice / Platform
 // guards keep the Android-specific calls from firing.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Linking, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
@@ -23,6 +23,8 @@ import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
 import { useAuthedFetch } from "@/hooks/useAuthedFetch";
+import { useCurrentUser } from "@/hooks/useApi";
+import { Role } from "@/lib/enums.generated";
 
 // Foreground notification behavior — show the banner + play the sound
 // even when the app is open. Without this, foreground pushes are
@@ -158,44 +160,77 @@ export function useRegisterPushToken(state: PushRegistrationState): void {
 
 // Listens for tap-on-notification events and routes the user into
 // the right loan thread. Notifications carry
-// `data: { kind: "ai_chat_message", thread_id, loan_id }` from the
-// backend (see app/services/push.py). We push to the dashboard tab
-// with `?openThread=<id>` and let app/(tabs)/index.tsx open the
-// AIChatSheet pre-targeted at that thread.
+// `data: { kind, thread_id?, loan_id? }` from the backend
+// (see app/services/push.py + loan_workspace._notify_client).
+//
+// Two launch modes both need to deep-link:
+//   - Warm: app already running → `addNotificationResponseReceivedListener`
+//   - Cold: app killed, user taps push → `getLastNotificationResponseAsync()`
+//     surfaces the response that started the process. We poll it on mount
+//     (gated by a ref so re-mounts don't re-route).
+//
+// Role matters: brokers live at /agent/loan/[id] (chat tab id = "messages"),
+// clients at /loan/[id] (chat tab id = "chat"). Same payload, different
+// destination.
 export function usePushTapHandler(): void {
   const router = useRouter();
+  const { data: me } = useCurrentUser();
+  const coldHandled = useRef(false);
+
+  const routeFromData = (
+    data: { kind?: string; thread_id?: string; loan_id?: string | null } | undefined,
+  ) => {
+    if (!data) return;
+    if (data.kind === "loan_chat_message" && data.loan_id) {
+      const isBroker = me?.role === Role.BROKER || me?.role === Role.SUPER_ADMIN || me?.role === Role.LOAN_EXEC;
+      if (isBroker) {
+        router.push({
+          pathname: "/agent/loan/[id]",
+          params: { id: data.loan_id, tab: "messages" },
+        });
+      } else {
+        router.push({
+          pathname: "/loan/[id]",
+          params: { id: data.loan_id, tab: "chat" },
+        });
+      }
+      return;
+    }
+    // Legacy: ai_chat_message pushes from the per-user AI thread system
+    // still deep-link into the AIChatSheet via the dashboard tab's
+    // `openThread` param.
+    if (data.kind === "ai_chat_message" && data.thread_id) {
+      router.push({
+        pathname: "/(tabs)",
+        params: { openThread: data.thread_id },
+      });
+    }
+  };
+
   useEffect(() => {
+    // Cold launch — replay the response that started the process.
+    // Wait until `me` resolves so role-aware routing picks the right path.
+    if (!coldHandled.current && me) {
+      coldHandled.current = true;
+      Notifications.getLastNotificationResponseAsync().then((resp: Notifications.NotificationResponse | null) => {
+        try {
+          routeFromData(resp?.notification?.request?.content?.data as any);
+        } catch {
+          // best-effort
+        }
+      });
+    }
+    // Warm launch — fires on every subsequent tap while the app is running.
     const sub = Notifications.addNotificationResponseReceivedListener((resp: Notifications.NotificationResponse) => {
       try {
-        const data = resp?.notification?.request?.content?.data as
-          | { kind?: string; thread_id?: string; loan_id?: string | null }
-          | undefined;
-        // Phase 7.5 — loan_chat_message pushes fire when an operator,
-        // broker, or AI writes into a loan's workspace chat. Deep-link
-        // straight into the loan detail page's chat tab (workspace
-        // chat lives there, not in the AIChatSheet).
-        if (data?.kind === "loan_chat_message" && data.loan_id) {
-          router.push({
-            pathname: "/loan/[id]",
-            params: { id: data.loan_id, tab: "chat" },
-          });
-          return;
-        }
-        // Legacy: ai_chat_message pushes from the per-user AI thread
-        // system still deep-link into the AIChatSheet via the
-        // dashboard tab's `openThread` param.
-        if (data?.kind === "ai_chat_message" && data.thread_id) {
-          router.push({
-            pathname: "/(tabs)",
-            params: { openThread: data.thread_id },
-          });
-        }
+        routeFromData(resp?.notification?.request?.content?.data as any);
       } catch {
-        // best-effort — never crash on a malformed notification
+        // best-effort
       }
     });
     return () => sub.remove();
-  }, [router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, me?.role]);
 }
 
 export function usePushRegistration(): PushRegistrationState {

@@ -318,8 +318,8 @@ export function PipelineScreen() {
       </ScrollView>
 
       <Pressable
-        onPress={() => router.push("/agent/client/new" as Href)}
-        accessibilityLabel="New client relationship"
+        onPress={() => router.push("/agent/loan/new" as Href)}
+        accessibilityLabel="New funding file"
         style={({ pressed }) => ({
           position: "absolute", right: 18, bottom: 20 + insets.bottom,
           backgroundColor: t.brand,
@@ -331,7 +331,7 @@ export function PipelineScreen() {
         })}
       >
         <Icon name="plus" size={16} color="#fff" />
-        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>New client</Text>
+        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>New file</Text>
       </Pressable>
 
       <ContextMenu

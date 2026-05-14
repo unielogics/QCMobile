@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
@@ -10,6 +10,7 @@ import { useAIChatThread, useMarkThreadSeen, useSendAIChatMessage } from "@/hook
 export default function AgentThreadRoute() {
   const { t } = useTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { threadId } = useLocalSearchParams<{ threadId: string }>();
   const { data: thread } = useAIChatThread(threadId);
   const send = useSendAIChatMessage();
@@ -41,7 +42,7 @@ export default function AgentThreadRoute() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top", "bottom"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, gap: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
         <Pressable onPress={() => router.back()} hitSlop={8}>
           <Icon name="x" size={18} color={t.ink} />
@@ -59,7 +60,9 @@ export default function AgentThreadRoute() {
       <KeyboardAware excludeTabBar>
         <ScrollView
           ref={scrollRef}
+          style={{ flex: 1 }}
           contentContainerStyle={{ padding: 16, gap: 10 }}
+          keyboardShouldPersistTaps="handled"
         >
           {(thread?.messages ?? []).map((m) => {
             const mine = m.role === "user";
@@ -81,7 +84,7 @@ export default function AgentThreadRoute() {
           })}
         </ScrollView>
 
-        <View style={{ flexDirection: "row", gap: 8, padding: 12, borderTopColor: t.line, borderTopWidth: 1, backgroundColor: t.surface }}>
+        <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 12, paddingTop: 12, paddingBottom: Math.max(12, insets.bottom + 4), borderTopColor: t.line, borderTopWidth: 1, backgroundColor: t.surface }}>
           <TextInput
             value={draft}
             onChangeText={setDraft}

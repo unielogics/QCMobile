@@ -31,6 +31,7 @@ import {
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 import { KeyboardAware } from "@/components/KeyboardAware";
@@ -70,6 +71,7 @@ const STARTER_PROMPTS = [
 export function AIChatSheet({ visible, onClose, context, initialThreadId }: Props) {
   const { t } = useTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { data: loans = [] } = useLoans();
   const { data: threads = [], isLoading: threadsLoading } = useAIChatThreads();
   const findOrCreate = useFindOrCreateChatThread();
@@ -656,7 +658,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                   gap: 8,
                   paddingHorizontal: 12,
                   paddingTop: 8,
-                  paddingBottom: 8,
+                  paddingBottom: Math.max(8, insets.bottom + 4),
                   borderTopWidth: 1,
                   borderTopColor: t.line,
                   backgroundColor: t.bg,
