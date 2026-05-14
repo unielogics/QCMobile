@@ -1,7 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -9,16 +8,26 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMemo, useState } from "react";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Card, Stepper, StepperLabels } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
 import { Slider } from "@/design-system/Slider";
 import { QC_FMT } from "@/design-system/tokens";
-import { useLoan, useLoanActivity, useDocuments, useAIChat } from "@/hooks/useApi";
-import type { AIChatTurn, Document } from "@/lib/types";
+import {
+  useLoan,
+  useLoanActivity,
+  useDocuments,
+  useLoanChat,
+  useLoanWorkspace,
+  useSendLoanChat,
+} from "@/hooks/useApi";
+import type { Document } from "@/lib/types";
 import { LoanSimulator } from "@/components/LoanSimulator";
+import { LoanChatThread } from "@/components/loan/LoanChatThread";
+import { PauseBanner } from "@/components/loan/PauseBanner";
+import { KeyboardAware } from "@/components/KeyboardAware";
 
 const STAGE_KEYS = ["prequalified", "collecting_docs", "lender_connected", "processing", "closing", "funded"] as const;
 const PIPELINE_STAGES = ["Prequalified", "Processing", "Underwriting", "Closing", "Funded"];
@@ -172,70 +181,88 @@ function ActivityPane({ loanId }: { loanId: string }) {
   );
 }
 
+// Borrower's view of the loan chat. CRITICAL: this MUST read from
+// /loans/{id}/chat (the workspace thread) — the same surface the
+// broker writes to via Live Chat and the same one super_admin uses
+// for operator takeover. Previously this pane talked to /ai/chat
+// (a per-user one-shot AI thread), which meant broker Live-Chat
+// messages were persisted in loan_chat_messages but the borrower
+// never saw them. Wiring both sides to the workspace chat is the
+// fix that makes operator-takeover actually reach the customer.
 function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
   const { t } = useTheme();
-  const chat = useAIChat();
-  const [messages, setMessages] = useState<AIChatTurn[]>([]);
+  const insets = useSafeAreaInsets();
+  const { data: chat = [] } = useLoanChat(loanId);
+  // Workspace is queried separately so the PauseBanner stays in sync
+  // even when the loan tab isn't open.
+  useLoanWorkspace(loanId);
+  const send = useSendLoanChat();
   const [draft, setDraft] = useState("");
 
-  const send = async () => {
+  const onSend = async () => {
     const text = draft.trim();
-    if (!text || chat.isPending) return;
-    const next: AIChatTurn[] = [...messages, { role: "user", content: text }];
-    setMessages(next);
+    if (!text || send.isPending) return;
     setDraft("");
     try {
-      const reply = await chat.mutateAsync({ messages: next, loan_id: loanId });
-      setMessages([...next, { role: "assistant", content: reply.reply }]);
+      // CLIENT can only send mode=chat per backend _MODE_ALLOWED_ROLES.
+      // Backend auto-replies with AI unless the loan is paused — in
+      // which case the message is persisted and the AI stays quiet,
+      // letting the broker/operator reply directly.
+      await send.mutateAsync({ loanId, body: text, mode: "chat" });
     } catch (err) {
-      setMessages([...next, { role: "assistant", content: `(error: ${err instanceof Error ? err.message : "request failed"})` }]);
+      // Restore the draft so the user can retry.
+      setDraft(text);
     }
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={80}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16, gap: 10 }} keyboardShouldPersistTaps="handled">
-        {messages.length === 0 ? (
+    <KeyboardAware excludeTabBar>
+      <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}>
+        <PauseBanner
+          loanId={loanId}
+          message="Your operator is replying directly. The AI will resume shortly."
+        />
+      </View>
+      {chat.length === 0 ? (
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16, gap: 10 }} keyboardShouldPersistTaps="handled">
           <Card pad={14}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <Icon name="spark" size={14} color={t.petrol} />
-              <Text style={{ fontSize: 11, fontWeight: "700", color: t.petrol, letterSpacing: 1.2, textTransform: "uppercase" }}>AI Co-pilot · {dealId}</Text>
+              <Text style={{ fontSize: 11, fontWeight: "700", color: t.petrol, letterSpacing: 1.2, textTransform: "uppercase" }}>
+                Loan chat · {dealId}
+              </Text>
             </View>
             <Text style={{ color: t.ink3, fontSize: 13, lineHeight: 18 }}>
-              Ask anything about your loan — pricing, missing docs, next steps. The assistant has full context for this file.
+              Ask anything about your loan — pricing, missing docs, next steps. Your agent and the AI are on this thread together.
             </Text>
           </Card>
-        ) : null}
-        {messages.map((m, i) => (
-          <View
-            key={i}
-            style={{
-              alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-              maxWidth: "84%",
-              backgroundColor: m.role === "user" ? t.brandSoft : t.surface2,
-              borderColor: t.line, borderWidth: 1,
-              borderRadius: 14, padding: 12,
-            }}
-          >
-            <Text style={{ fontSize: 10.5, fontWeight: "700", color: t.ink3, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>
-              {m.role === "user" ? "You" : "AI"}
-            </Text>
-            <Text style={{ fontSize: 14, color: t.ink, lineHeight: 20 }}>{m.content}</Text>
-          </View>
-        ))}
-        {chat.isPending ? (
-          <View style={{ alignSelf: "flex-start", padding: 12 }}>
-            <ActivityIndicator color={t.ink3} />
-          </View>
-        ) : null}
-      </ScrollView>
-      <View style={{ flexDirection: "row", gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: t.line, backgroundColor: t.surface }}>
+        </ScrollView>
+      ) : (
+        <View style={{ flex: 1 }}>
+          <LoanChatThread messages={chat} viewerRole="client" />
+        </View>
+      )}
+      <View
+        style={{
+          flexDirection: "row",
+          gap: 8,
+          paddingHorizontal: 12,
+          paddingTop: 8,
+          // Reserve the system-bar inset so the send button doesn't
+          // sit behind the Android nav bar / iOS home indicator.
+          paddingBottom: Math.max(8, insets.bottom + 4),
+          borderTopWidth: 1,
+          borderTopColor: t.line,
+          backgroundColor: t.surface,
+        }}
+      >
         <TextInput
           value={draft}
           onChangeText={setDraft}
           placeholder="Ask about this loan…"
           placeholderTextColor={t.ink3}
           multiline
+          editable={!send.isPending}
           style={{
             flex: 1, fontSize: 14, color: t.ink,
             backgroundColor: t.surface2, borderWidth: 1, borderColor: t.line,
@@ -243,19 +270,24 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
           }}
         />
         <Pressable
-          onPress={send}
-          disabled={chat.isPending || !draft.trim()}
+          onPress={onSend}
+          disabled={send.isPending || !draft.trim()}
+          accessibilityLabel="Send"
           style={({ pressed }) => ({
             paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12,
-            backgroundColor: chat.isPending || !draft.trim() ? t.chip : t.ink,
+            backgroundColor: send.isPending || !draft.trim() ? t.chip : t.ink,
             alignItems: "center", justifyContent: "center",
             opacity: pressed ? 0.85 : 1,
           })}
         >
-          <Icon name="send" size={16} color={chat.isPending || !draft.trim() ? t.ink4 : t.inverse} />
+          {send.isPending ? (
+            <ActivityIndicator color={t.inverse} size="small" />
+          ) : (
+            <Icon name="send" size={16} color={!draft.trim() ? t.ink4 : t.inverse} />
+          )}
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardAware>
   );
 }
 
