@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "209207872015",
+    "project_id": "qualifiedcommercial-83fb1",
+    "storage_bucket": "qualifiedcommercial-83fb1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:209207872015:android:3910bb686f2c32a0e2717a",
+        "android_client_info": {
+          "package_name": "com.qualifiedcommercial.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC59BFOczPOfIdLTdQwYnc_ZT64FVCBPD8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
