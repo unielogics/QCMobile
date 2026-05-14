@@ -198,7 +198,7 @@ export default function AgentLoanRoute() {
             <HudTab loanId={loan.id} />
           </ScrollView>
         ) : tab === "messages" ? (
-          <LoanMessagesTab loanId={loan.id} viewerRole={viewerRole} bottomPad={bottomPad} />
+          <LoanMessagesTab loanId={loan.id} viewerRole={viewerRole} />
         ) : tab === "ai" ? (
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomPad }}>
             <AISecretaryTab loanId={loan.id} />
@@ -234,11 +234,9 @@ export default function AgentLoanRoute() {
 function LoanMessagesTab({
   loanId,
   viewerRole,
-  bottomPad,
 }: {
   loanId: string;
   viewerRole: "broker" | "super_admin" | "loan_exec" | "client";
-  bottomPad: number;
 }) {
   const { t } = useTheme();
   const { data: chat = [] } = useLoanChat(loanId);
@@ -255,9 +253,14 @@ function LoanMessagesTab({
     );
   }
 
+  // No paddingBottom math here — LoanChatComposer reserves the
+  // system-bar inset itself via useSafeAreaInsets, and KeyboardAware
+  // adds insets.bottom into keyboardVerticalOffset. The two cooperate
+  // so the composer sits above both the system nav bar and the soft
+  // keyboard without the brittle `bottomPad - 70` magic number.
   return (
     <KeyboardAware excludeTabBar>
-      <View style={{ flex: 1, paddingBottom: bottomPad - 70 }}>
+      <View style={{ flex: 1 }}>
         <LoanChatThread messages={chat} viewerRole={viewerRole} />
       </View>
       <LoanChatComposer loanId={loanId} viewerRole={viewerRole} />

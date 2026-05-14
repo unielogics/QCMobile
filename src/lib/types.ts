@@ -710,3 +710,48 @@ export interface EngagementSignal {
   metadata: Record<string, unknown> | null;
   occurred_at: string;
 }
+
+// ── Deal Secretary (AI delegation) — mirror of QCDashboard types ──
+
+export type DSRequirementCategory =
+  | "borrower_info"
+  | "property_data"
+  | "financials"
+  | "credit"
+  | "agreements"
+  | "insurance"
+  | "title_and_escrow"
+  | "appraisal_and_inspection"
+  | "scheduling"
+  | "compliance"
+  | "communication"
+  | "ai_internal";
+
+export type DSTaskOwnerType = "human" | "ai";
+
+// Subset of the full desktop DSTaskRow — enough fields for the
+// mobile swipe row + detail sheet. Backend returns extra fields
+// that we ignore safely.
+export interface DSTaskRow {
+  client_requirement_status_id: string;
+  requirement_key: string;
+  label: string;
+  category: DSRequirementCategory;
+  required_level: "required" | "recommended" | "optional";
+  status: string;
+  owner_type: DSTaskOwnerType;
+  source: string;
+  objective_text: string;
+  completion_criteria: string;
+  due_at: string | null;
+  blocks_stage: string | null;
+}
+
+export interface DSDealSecretaryView {
+  loan_id: string | null;
+  client_id: string;
+  // The two-column desktop split: left = human-owned, right = AI-owned.
+  // Mobile flattens these into one swipe list.
+  left: DSTaskRow[];
+  right: DSTaskRow[];
+}
