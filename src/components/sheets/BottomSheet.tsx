@@ -19,6 +19,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 import { KeyboardAware } from "@/components/KeyboardAware";
@@ -47,6 +48,7 @@ export function BottomSheet({
   children,
 }: Props) {
   const { t } = useTheme();
+  const insets = useSafeAreaInsets();
   return (
     <Modal
       animationType="slide"
@@ -107,7 +109,14 @@ export function BottomSheet({
           {scrollable ? (
             <ScrollView
               style={{ flex: 1, backgroundColor: t.bg }}
-              contentContainerStyle={{ padding: 14, paddingBottom: 24, gap: 12 }}
+              contentContainerStyle={{
+                padding: 14,
+                // Reserve the system-bar inset so the bottom of the
+                // sheet content (Save buttons, send button) clears
+                // the Android nav bar / iOS home indicator.
+                paddingBottom: 24 + insets.bottom,
+                gap: 12,
+              }}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
               showsVerticalScrollIndicator={false}
@@ -115,7 +124,7 @@ export function BottomSheet({
               {children}
             </ScrollView>
           ) : (
-            <View style={{ flex: 1, backgroundColor: t.bg }}>{children}</View>
+            <View style={{ flex: 1, backgroundColor: t.bg, paddingBottom: insets.bottom }}>{children}</View>
           )}
         </KeyboardAware>
       </View>

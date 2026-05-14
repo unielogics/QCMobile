@@ -21,6 +21,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon, type IconName } from "@/design-system/Icon";
 import type { DealChatMode } from "@/lib/mocks";
@@ -57,6 +58,7 @@ const ADMIN_MODES: ModeChip[] = [
 
 export function LoanChatComposer({ loanId, onSent, viewerRole }: Props) {
   const { t } = useTheme();
+  const insets = useSafeAreaInsets();
   const send = useSendLoanChat();
   const modes = viewerRole === "broker" ? BROKER_MODES : ADMIN_MODES;
   const [mode, setMode] = useState<DealChatMode>(modes[0].mode);
@@ -89,7 +91,9 @@ export function LoanChatComposer({ loanId, onSent, viewerRole }: Props) {
         borderTopColor: t.line,
         backgroundColor: t.bg,
         paddingTop: 8,
-        paddingBottom: 8,
+        // Sit above the Android system nav bar / iOS home indicator
+        // so the send button isn't clipped by the OS chrome.
+        paddingBottom: Math.max(8, insets.bottom + 4),
         gap: 8,
       }}
     >

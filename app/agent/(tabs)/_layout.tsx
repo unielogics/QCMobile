@@ -46,10 +46,10 @@ export default function AgentTabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="messages"
+        name="inbox"
         options={{
-          title: "Messages",
-          tabBarIcon: ({ color, focused }) => <TabIcon name="chat" color={color} focused={focused} />,
+          title: "Inbox",
+          tabBarIcon: ({ color, focused }) => <TabIcon name="bell" color={color} focused={focused} />,
         }}
       />
       <Tabs.Screen

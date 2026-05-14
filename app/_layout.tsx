@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { AppState, LogBox, type AppStateStatus } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
@@ -97,12 +99,20 @@ export default function RootLayout() {
     defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
   }));
   return (
-    <ClerkProvider publishableKey={PUBLISHABLE_KEY} tokenCache={tokenCache}>
-      <QueryClientProvider client={qc}>
-        <ThemeProvider>
-          <AuthGate />
-        </ThemeProvider>
-      </QueryClientProvider>
-    </ClerkProvider>
+    // GestureHandlerRootView is required by react-native-gesture-handler
+    // for the Swipeable on the AI Secretary screen to receive gestures.
+    // SafeAreaProvider ensures useSafeAreaInsets() returns real values
+    // everywhere (Android edge-to-edge fix).
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ClerkProvider publishableKey={PUBLISHABLE_KEY} tokenCache={tokenCache}>
+          <QueryClientProvider client={qc}>
+            <ThemeProvider>
+              <AuthGate />
+            </ThemeProvider>
+          </QueryClientProvider>
+        </ClerkProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

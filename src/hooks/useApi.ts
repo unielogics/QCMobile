@@ -1598,3 +1598,58 @@ export function useDisconnectLender() {
     },
   });
 }
+
+// ── Deal Secretary (Phase 6 — swipe-to-assign workbench) ──────────────
+
+import type { DSDealSecretaryView, DSTaskRow } from "@/lib/types";
+import { mockDealSecretaryView } from "@/lib/mocks";
+
+export function useDealSecretary(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["dealSecretary", loanId ?? "", key],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_DEAL_SECRETARY")) {
+        return mockDealSecretaryView(loanId ?? "");
+      }
+      return fetcher<DSDealSecretaryView>(`/loans/${loanId}/deal-secretary`);
+    },
+    enabled: !!loanId,
+  });
+}
+
+// Flip a single task to AI-owned. Mirrors desktop useAssignToAI but with a
+// minimal request body — mobile only sends the requirement_key. Channels /
+// cadence / instructions are desktop-only refinements; brokers fall back to
+// the desktop for those (per scope decision).
+export function useAssignTaskToAI() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loanId, requirement_key }: { loanId: string; requirement_key: string }) =>
+      fetcher<DSTaskRow>(`/loans/${loanId}/deal-secretary/assign`, {
+        method: "POST",
+        body: JSON.stringify({ requirement_key }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["dealSecretary", vars.loanId] });
+    },
+  });
+}
+
+// Flip a task back to human-owned (the swiped-right "keep with me" path).
+export function useUnassignTaskFromAI() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loanId, requirement_key }: { loanId: string; requirement_key: string }) =>
+      fetcher<DSTaskRow>(`/loans/${loanId}/deal-secretary/unassign`, {
+        method: "POST",
+        body: JSON.stringify({ requirement_key }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["dealSecretary", vars.loanId] });
+    },
+  });
+}
