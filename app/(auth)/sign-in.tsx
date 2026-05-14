@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useAuth, useSignIn } from "@clerk/clerk-expo";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Card, QButton, SectionLabel } from "@/design-system/primitives";
+import { Icon } from "@/design-system/Icon";
 
 type Stage = "credentials" | "two-factor";
 type SecondStrategy = "totp" | "phone_code" | "email_code" | "backup_code";
@@ -29,6 +30,10 @@ export default function SignInScreen() {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Reveal toggle for the password field — tap the eye glyph to flip
+  // `secureTextEntry`. Starts hidden; resets to hidden after any
+  // re-mount of this screen (no need to persist).
+  const [showPassword, setShowPassword] = useState(false);
 
   // If a session is already alive (cached in secure-store), bounce to the app.
   useEffect(() => {
@@ -162,33 +167,72 @@ export default function SignInScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: t.bg, padding: 16, justifyContent: "center" }}>
-      <Card pad={20}>
-        {stage === "credentials" ? (
-          <>
-            <Text style={{ fontSize: 24, fontWeight: "800", color: t.ink, marginBottom: 4 }}>Welcome back</Text>
-            <Text style={{ fontSize: 13, color: t.ink3, marginBottom: 20 }}>Sign in to Qualified Commercial.</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
+      {/* KeyboardAvoidingView pushes the form up when the soft keyboard
+          opens so the password input + button never get hidden. iOS
+          uses padding, Android uses height — these are the
+          documented behaviors that actually work in each runtime.
+          Wrapped ScrollView makes the form scrollable on tiny screens
+          and `keyboardShouldPersistTaps="handled"` keeps the eye-toggle
+          tappable even while the keyboard is up. */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1, padding: 16, justifyContent: "center" }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Card pad={20}>
+            {stage === "credentials" ? (
+              <>
+                <Text style={{ fontSize: 24, fontWeight: "800", color: t.ink, marginBottom: 4 }}>Welcome back</Text>
+                <Text style={{ fontSize: 13, color: t.ink3, marginBottom: 20 }}>Sign in to Qualified Commercial.</Text>
 
-            <SectionLabel>Email</SectionLabel>
-            <TextInput
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              placeholder="you@example.com"
-              placeholderTextColor={t.ink4}
-              style={{ backgroundColor: t.surface2, borderColor: t.line, borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 14, color: t.ink, marginBottom: 12 }}
-            />
+                <SectionLabel>Email</SectionLabel>
+                <TextInput
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  placeholder="you@example.com"
+                  placeholderTextColor={t.ink4}
+                  style={{ backgroundColor: t.surface2, borderColor: t.line, borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 14, color: t.ink, marginBottom: 12 }}
+                />
 
-            <SectionLabel>Password</SectionLabel>
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              placeholder="••••••••"
-              placeholderTextColor={t.ink4}
-              style={{ backgroundColor: t.surface2, borderColor: t.line, borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 14, color: t.ink, marginBottom: 16 }}
-            />
+                <SectionLabel>Password</SectionLabel>
+                {/* Wrapper holds the input + an absolutely-positioned
+                    eye glyph that toggles `secureTextEntry`. Right
+                    padding reserved on the input so the typed value
+                    never collides with the icon. */}
+                <View style={{ position: "relative", marginBottom: 16 }}>
+                  <TextInput
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    placeholder="••••••••"
+                    placeholderTextColor={t.ink4}
+                    style={{ backgroundColor: t.surface2, borderColor: t.line, borderWidth: 1, borderRadius: 10, paddingVertical: 12, paddingLeft: 12, paddingRight: 44, fontSize: 14, color: t.ink }}
+                  />
+                  <Pressable
+                    onPress={() => setShowPassword((v) => !v)}
+                    accessibilityLabel={showPassword ? "Hide password" : "Show password"}
+                    hitSlop={8}
+                    style={({ pressed }) => ({
+                      position: "absolute",
+                      right: 4,
+                      top: 0,
+                      bottom: 0,
+                      width: 40,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      opacity: pressed ? 0.55 : 1,
+                    })}
+                  >
+                    <Icon name={showPassword ? "eyeOff" : "eye"} size={18} color={t.ink3} />
+                  </Pressable>
+                </View>
 
             {error && (
               <View style={{ padding: 10, borderRadius: 8, backgroundColor: t.dangerBg, marginBottom: 12 }}>
@@ -243,7 +287,9 @@ export default function SignInScreen() {
             </Pressable>
           </>
         )}
-      </Card>
+          </Card>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

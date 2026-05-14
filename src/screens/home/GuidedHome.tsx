@@ -156,16 +156,19 @@ function ChatHeroCard({
       onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 16,
-        backgroundColor: t.brand,
+        // Match the "Pending" pill palette — semi-transparent orange
+        // wash (t.warnBg) with the deeper t.warn used for accent text
+        // and icons. Same family across light + dark themes.
+        backgroundColor: t.warnBg,
         padding: 18,
         flexDirection: "row",
         alignItems: "center",
         gap: 14,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.18,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.10,
         shadowRadius: 12,
-        elevation: 4,
+        elevation: 2,
         opacity: pressed ? 0.92 : 1,
       })}
     >
@@ -174,13 +177,16 @@ function ChatHeroCard({
           width: 52,
           height: 52,
           borderRadius: 26,
-          backgroundColor: "rgba(255,255,255,0.18)",
+          // Tint of t.warn so the icon "chip" reads as a deeper orange
+          // medallion on the wash. Inline rgba because we don't have a
+          // theme-conditional helper for this exact opacity.
+          backgroundColor: "rgba(168,106,18,0.15)",
           alignItems: "center",
           justifyContent: "center",
           position: "relative",
         }}
       >
-        <Icon name="chat" size={26} color={t.inverse} stroke={2.2} />
+        <Icon name="chat" size={26} color={t.warn} stroke={2.2} />
         {unread ? (
           <View
             style={{
@@ -192,34 +198,35 @@ function ChatHeroCard({
               borderRadius: 7,
               backgroundColor: t.danger,
               borderWidth: 2,
-              borderColor: t.brand,
+              // Match the card bg so the dot reads as a clean cutout.
+              borderColor: t.warnBg,
             }}
           />
         ) : null}
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <Text style={{ fontSize: 11, fontWeight: "800", color: "rgba(255,255,255,0.85)", letterSpacing: 1.0 }}>
+          <Text style={{ fontSize: 11, fontWeight: "800", color: t.warn, letterSpacing: 1.0 }}>
             AI CONCIERGE
           </Text>
           {ts ? (
-            <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>· {ts}</Text>
+            <Text style={{ fontSize: 11, color: t.ink3 }}>· {ts}</Text>
           ) : null}
         </View>
         <Text
-          style={{ fontSize: 16, fontWeight: "800", color: t.inverse, marginTop: 3 }}
+          style={{ fontSize: 16, fontWeight: "800", color: t.ink, marginTop: 3 }}
           numberOfLines={1}
         >
           {preview ? "Continue your conversation" : "Start a conversation"}
         </Text>
         <Text
-          style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", marginTop: 4, lineHeight: 18 }}
+          style={{ fontSize: 13, color: t.ink2, marginTop: 4, lineHeight: 18 }}
           numberOfLines={2}
         >
           {subtitle}
         </Text>
       </View>
-      <Icon name="chevR" size={20} color={t.inverse} />
+      <Icon name="chevR" size={20} color={t.warn} />
     </Pressable>
   );
 }

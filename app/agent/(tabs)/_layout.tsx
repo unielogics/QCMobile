@@ -1,4 +1,5 @@
 import { Tabs } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon, type IconName } from "@/design-system/Icon";
 
@@ -8,16 +9,21 @@ function TabIcon({ name, color, focused }: { name: IconName; color: string; focu
 
 export default function AgentTabsLayout() {
   const { t } = useTheme();
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
+        // Add insets.bottom so the tab labels never sit under the
+        // S22's on-screen Home/Back/Recents bar. Gesture-nav phones
+        // (Z Fold) report ~16-24px; 3-button-nav phones (S22) report
+        // ~48-56px — both flow naturally.
         tabBarStyle: {
           backgroundColor: t.surface,
           borderTopColor: t.line,
-          paddingBottom: 6,
+          paddingBottom: 6 + insets.bottom,
           paddingTop: 6,
-          height: 64,
+          height: 64 + insets.bottom,
         },
         tabBarActiveTintColor: t.ink,
         tabBarInactiveTintColor: t.ink4,

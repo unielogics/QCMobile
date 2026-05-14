@@ -1,4 +1,5 @@
 import { Pressable, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 
@@ -15,8 +16,12 @@ export function Fab({
   unread?: boolean;
 }) {
   const { t, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   return (
-    <View pointerEvents="box-none" style={{ position: "absolute", right: 16, bottom: 44, zIndex: 40 }}>
+    // 28 lifts the FAB clear of the bottom tab bar; insets.bottom
+    // accounts for the system nav bar on phones that show it
+    // (S22 ≈ 48-56px; Z Fold gesture-nav ≈ 16-24px).
+    <View pointerEvents="box-none" style={{ position: "absolute", right: 16, bottom: 28 + insets.bottom, zIndex: 40 }}>
       <Pressable
         onPress={onPress}
         accessibilityLabel={unread ? "Quick action — new message" : "Quick action"}
