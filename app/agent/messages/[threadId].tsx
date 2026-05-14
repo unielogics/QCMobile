@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
+import { KeyboardAware } from "@/components/KeyboardAware";
 import { useAIChatThread, useMarkThreadSeen, useSendAIChatMessage } from "@/hooks/useApi";
 
 export default function AgentThreadRoute() {
@@ -47,7 +48,7 @@ export default function AgentThreadRoute() {
         </Pressable>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink }} numberOfLines={1}>
-            {thread?.title || thread?.loan_address || "Conversation"}
+            {thread?.title || thread?.loan_address || "AI assistant"}
           </Text>
           {thread?.loan_deal_id ? (
             <Text style={{ fontSize: 11, color: t.ink3, marginTop: 1 }}>{thread.loan_deal_id}</Text>
@@ -55,7 +56,7 @@ export default function AgentThreadRoute() {
         </View>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAware excludeTabBar>
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={{ padding: 16, gap: 10 }}
@@ -106,7 +107,7 @@ export default function AgentThreadRoute() {
             <Icon name="send" size={18} color="#fff" />
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAware>
     </SafeAreaView>
   );
 }

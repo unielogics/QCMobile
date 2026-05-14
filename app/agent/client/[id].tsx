@@ -9,7 +9,10 @@ import { LoanSnapshotCard } from "@/components/LoanSnapshotCard";
 import { DocumentRequestList } from "@/components/DocumentRequestList";
 import { RealtorReadinessCard } from "@/components/RealtorReadinessCard";
 import { ClientAIPlanCard } from "@/components/ClientAIPlanCard";
-import { useClient, useDocuments, useEngagement, useFindOrCreateChatThread, useLoans, useRequestPrequalification, useStartFunding, useUpdateClientStage } from "@/hooks/useApi";
+import { useClient, useCurrentUser, useDocuments, useEngagement, useFindOrCreateChatThread, useLoans, useRequestPrequalification, useStartFunding, useUpdateClientStage } from "@/hooks/useApi";
+import { PauseBanner } from "@/components/loan/PauseBanner";
+import { ContextMenu, type ContextMenuItem } from "@/components/agent/ContextMenu";
+import { ReassignAgentSheet } from "@/components/agent/ReassignAgentSheet";
 import { ClientStageOptions } from "@/lib/enums.generated";
 import type { ClientStage } from "@/lib/enums.generated";
 import type { Client } from "@/lib/types";
@@ -30,7 +33,11 @@ export default function AgentClientRoute() {
   const startFunding = useStartFunding();
   const requestPrequal = useRequestPrequalification();
   const findOrCreate = useFindOrCreateChatThread();
+  const { data: me } = useCurrentUser();
+  const isSuperAdmin = me?.role === "super_admin" || me?.role === "loan_exec";
   const [busy, setBusy] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reassignOpen, setReassignOpen] = useState(false);
 
   const clientLoans = useMemo(() => loans.filter((l) => l.client_id === id), [loans, id]);
   const activeLoan = useMemo(() => clientLoans.find((l) => l.stage !== "funded") ?? clientLoans[0] ?? null, [clientLoans]);
@@ -187,6 +194,16 @@ export default function AgentClientRoute() {
           }
         : null;
 
+  const menuItems: ContextMenuItem[] = [
+    {
+      key: "reassign",
+      label: "Reassign agent",
+      sublabel: isSuperAdmin ? "Transfer this client to another agent" : "Super-admin only",
+      icon: "user",
+      onPress: () => isSuperAdmin && setReassignOpen(true),
+    },
+  ];
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, gap: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
@@ -194,7 +211,26 @@ export default function AgentClientRoute() {
           <Icon name="x" size={18} color={t.ink} />
         </Pressable>
         <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink, flex: 1 }}>Client</Text>
+        <Pressable
+          onPress={() => setMenuOpen(true)}
+          hitSlop={8}
+          accessibilityLabel="More actions"
+          style={({ pressed }) => ({
+            padding: 6,
+            borderRadius: 9,
+            backgroundColor: pressed ? t.chip : "transparent",
+          })}
+        >
+          <Icon name="more" size={18} color={t.ink} />
+        </Pressable>
       </View>
+
+      {/* Pause banner — visible if AI is paused on the client's active loan */}
+      {activeLoan ? (
+        <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
+          <PauseBanner loanId={activeLoan.id} />
+        </View>
+      ) : null}
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 186 + insets.bottom }}>
         <Card pad={18}>
@@ -323,6 +359,24 @@ export default function AgentClientRoute() {
           ) : null}
         </View>
       </View>
+
+      <ContextMenu
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        title="Client actions"
+        subtitle={client.name}
+        items={menuItems}
+      />
+
+      {reassignOpen ? (
+        <ReassignAgentSheet
+          visible
+          onClose={() => setReassignOpen(false)}
+          clientId={client.id}
+          clientName={client.name}
+          currentAgentId={client.current_agent_id ?? client.broker_id ?? null}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

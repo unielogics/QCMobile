@@ -1108,3 +1108,493 @@ export function useAgentPlaybook(playbookType: "buyer" | "seller" | "cadence") {
     queryFn: () => fetcher<AgentPlaybook>(`/me/ai-playbook/${playbookType}`),
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cockpit parity hooks (mirror QCDashboard/src/hooks/useApi.ts shapes)
+//
+// Endpoints are gated by EXPO_PUBLIC_BACKEND_HAS_* flags so the UI can
+// ship before the backend route is reachable. When the flag is off, the
+// fetcher swaps in a mock from src/lib/mocks/ and the screen keeps
+// rendering without 404 noise.
+// ─────────────────────────────────────────────────────────────────────────
+
+import { hasBackend } from "@/lib/featureFlags";
+import {
+  mockFundingMetrics, type FundingMetrics,
+  mockDealSecretarySummary, type DealSecretarySummary,
+  mockConditions, type LoanCondition,
+  mockHudLines, type HudLine as HudLineMock,
+  mockLenderConnection, mockLenderMessages, type LenderConnection, type LenderMessage,
+  mockExperienceMode, type ExperienceModeState, type ExperienceMode,
+  mockParsedCredit, type ParsedCreditReport,
+  mockAIQuestions, type AIQuestion,
+  mockLoanWorkspace, type LoanWorkspace, type LoanChatMessage, type DealChatMode,
+  mockLoanCriteria, type LoanCriteria,
+} from "@/lib/mocks";
+
+// ── Loan workspace (chat + pause state) ────────────────────────────────
+
+export function useLoanWorkspace(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["loanWorkspace", loanId ?? "", key],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_LOAN_WORKSPACE")) {
+        return mockLoanWorkspace(loanId ?? "");
+      }
+      return fetcher<LoanWorkspace>(`/loans/${loanId}/workspace/state`);
+    },
+    enabled: !!loanId,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useLoanChat(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["loanChat", loanId ?? "", key],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_LIVE_CHAT")) return [] as LoanChatMessage[];
+      return fetcher<LoanChatMessage[]>(`/loans/${loanId}/chat`);
+    },
+    enabled: !!loanId,
+    refetchInterval: 15_000,
+  });
+}
+
+export interface LoanChatSendResponse {
+  message: LoanChatMessage;
+  paused_until: string | null;
+}
+
+export function useSendLoanChat() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loanId, body, mode }: { loanId: string; body: string; mode: DealChatMode }) =>
+      fetcher<LoanChatSendResponse>(`/loans/${loanId}/chat`, {
+        method: "POST",
+        body: JSON.stringify({ body, mode }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["loanChat", vars.loanId] });
+      qc.invalidateQueries({ queryKey: ["loanWorkspace", vars.loanId] });
+      qc.invalidateQueries({ queryKey: ["activities", vars.loanId] });
+    },
+  });
+}
+
+// ── Pipeline parity hooks ─────────────────────────────────────────────
+
+export function useFundingMetrics() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["fundingMetrics", key],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_FUNDING_METRICS")) return mockFundingMetrics();
+      return fetcher<FundingMetrics>("/agent/funding-metrics");
+    },
+  });
+}
+
+export function useDealSecretarySummary(loanIds: string[]) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  const csv = loanIds.join(",");
+  return useQuery({
+    queryKey: ["dealSecretarySummary", csv, key],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_DEAL_SECRETARY")) return mockDealSecretarySummary(loanIds);
+      const arr = await fetcher<Array<DealSecretarySummary & { loan_id: string }>>(
+        `/pipeline/deal-secretary-summary?loan_ids=${csv}`,
+      );
+      const out: Record<string, DealSecretarySummary> = {};
+      for (const item of arr) out[item.loan_id] = item;
+      return out;
+    },
+    enabled: loanIds.length > 0,
+  });
+}
+
+export interface BrokerOption {
+  id: string;
+  name: string;
+  email: string;
+  tier: string | null;
+}
+
+export function useBrokers() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["brokers", key],
+    queryFn: () => fetcher<BrokerOption[]>("/brokers"),
+  });
+}
+
+export function useReassignAgent() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      clientId,
+      toAgentId,
+      reason,
+    }: {
+      clientId: string;
+      toAgentId: string;
+      reason?: string;
+    }) =>
+      fetcher<Client>(`/clients/${clientId}/agent`, {
+        method: "PATCH",
+        body: JSON.stringify({ to_agent_id: toAgentId, reason }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["client", vars.clientId] });
+      qc.invalidateQueries({ queryKey: ["loans"] });
+    },
+  });
+}
+
+// ── Client detail parity ──────────────────────────────────────────────
+
+export function useUpdateClient() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, ...body }: {
+      clientId: string;
+      name?: string;
+      email?: string | null;
+      phone?: string | null;
+      address?: string | null;
+      city?: string | null;
+      client_type?: "buyer" | "seller" | null;
+    }) =>
+      fetcher<Client>(`/clients/${clientId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["client", vars.clientId] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
+}
+
+export function useParsedReport(pullId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  return useQuery({
+    queryKey: ["parsedCredit", pullId ?? ""],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_CREDIT_PARSED")) return mockParsedCredit(pullId ?? "");
+      return fetcher<ParsedCreditReport>(`/credit/pulls/${pullId}/parsed`);
+    },
+    enabled: !!pullId,
+  });
+}
+
+export function useExperienceMode(clientId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  return useQuery({
+    queryKey: ["experienceMode", clientId ?? ""],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_EXPERIENCE_MODE")) return mockExperienceMode(clientId ?? "");
+      return fetcher<ExperienceModeState>(`/clients/${clientId}/experience-mode`);
+    },
+    enabled: !!clientId,
+  });
+}
+
+export function useSetExperienceMode() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, mode }: { clientId: string; mode: ExperienceMode }) =>
+      fetcher<ExperienceModeState>(`/clients/${clientId}/experience-mode`, {
+        method: "PATCH",
+        body: JSON.stringify({ mode }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["experienceMode", vars.clientId] });
+      qc.invalidateQueries({ queryKey: ["client", vars.clientId] });
+    },
+  });
+}
+
+// ── Loan detail expansion ─────────────────────────────────────────────
+
+export function useLoanCriteriaQ(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  return useQuery({
+    queryKey: ["loanCriteria", loanId ?? ""],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_LOAN_CRITERIA")) return mockLoanCriteria(loanId ?? "");
+      return fetcher<LoanCriteria>(`/loans/${loanId}/criteria`);
+    },
+    enabled: !!loanId,
+  });
+}
+
+export function useUpdateLoanCriteria() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loanId, ...body }: { loanId: string } & Partial<LoanCriteria>) =>
+      fetcher<LoanCriteria>(`/loans/${loanId}/criteria`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["loanCriteria", vars.loanId] });
+      qc.invalidateQueries({ queryKey: ["loan", vars.loanId] });
+    },
+  });
+}
+
+export function useLoanConditions(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  return useQuery({
+    queryKey: ["loanConditions", loanId ?? ""],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_CONDITIONS")) return mockConditions(loanId ?? "");
+      return fetcher<LoanCondition[]>(`/loans/${loanId}/conditions`);
+    },
+    enabled: !!loanId,
+  });
+}
+
+export function useUpdateCondition() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loanId, conditionId, ...body }: {
+      loanId: string;
+      conditionId: string;
+      status?: LoanCondition["status"];
+      description?: string | null;
+      assigned_to?: string | null;
+    }) =>
+      fetcher<LoanCondition>(`/loans/${loanId}/conditions/${conditionId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["loanConditions", vars.loanId] });
+    },
+  });
+}
+
+export function useHudLines(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  return useQuery({
+    queryKey: ["hudLines", loanId ?? ""],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_HUD")) return mockHudLines(loanId ?? "");
+      return fetcher<HudLineMock[]>(`/loans/${loanId}/hud`);
+    },
+    enabled: !!loanId,
+  });
+}
+
+export function useCreateHudLine() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loanId, ...body }: {
+      loanId: string;
+      line_number: string;
+      description: string;
+      amount: number;
+      payee?: string | null;
+      paid_by?: "buyer" | "seller" | "lender" | null;
+    }) =>
+      fetcher<HudLineMock>(`/loans/${loanId}/hud`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["hudLines", vars.loanId] });
+    },
+  });
+}
+
+export function useDeleteHudLine() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loanId, lineId }: { loanId: string; lineId: string }) =>
+      fetcher<void>(`/loans/${loanId}/hud/${lineId}`, { method: "DELETE" }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["hudLines", vars.loanId] });
+    },
+  });
+}
+
+export function useLoanPrequalRequests(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  return useQuery({
+    queryKey: ["loanPrequalRequests", loanId ?? ""],
+    queryFn: () => fetcher<PrequalRequest[]>(`/loans/${loanId}/prequal-requests`),
+    enabled: !!loanId,
+  });
+}
+
+export function useMarkDocumentVerified() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ documentId }: { documentId: string }) =>
+      fetcher<Document>(`/documents/${documentId}/verify`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["documents"] });
+    },
+  });
+}
+
+export function useFlagDocument() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ documentId, reason }: { documentId: string; reason?: string }) =>
+      fetcher<Document>(`/documents/${documentId}/flag`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["documents"] });
+    },
+  });
+}
+
+// ── AI Secretary ──────────────────────────────────────────────────────
+
+export function useAIQuestions(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  return useQuery({
+    queryKey: ["aiQuestions", loanId ?? ""],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_AI_SECRETARY")) return mockAIQuestions(loanId ?? "");
+      return fetcher<AIQuestion[]>(`/loans/${loanId}/deal-secretary/ai-questions`);
+    },
+    enabled: !!loanId,
+  });
+}
+
+export function useAnswerAIQuestion() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loanId, questionId, answer }: {
+      loanId: string;
+      questionId: string;
+      answer: string;
+    }) =>
+      fetcher<{ ok: boolean }>(
+        `/loans/${loanId}/deal-secretary/ai-questions/${questionId}/answer`,
+        { method: "POST", body: JSON.stringify({ answer }) },
+      ),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["aiQuestions", vars.loanId] });
+    },
+  });
+}
+
+export function useStartAISecretary() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (loanId: string) =>
+      fetcher<{ ok: boolean }>(`/loans/${loanId}/deal-secretary/start`, { method: "POST" }),
+    onSuccess: (_, loanId) => {
+      qc.invalidateQueries({ queryKey: ["aiQuestions", loanId] });
+      qc.invalidateQueries({ queryKey: ["loanWorkspace", loanId] });
+    },
+  });
+}
+
+export function usePauseAISecretary() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (loanId: string) =>
+      fetcher<{ ok: boolean }>(`/loans/${loanId}/deal-secretary/pause`, { method: "POST" }),
+    onSuccess: (_, loanId) => {
+      qc.invalidateQueries({ queryKey: ["loanWorkspace", loanId] });
+    },
+  });
+}
+
+// ── Lender thread ─────────────────────────────────────────────────────
+
+export function useLenderConnection(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  return useQuery({
+    queryKey: ["lenderConnection", loanId ?? ""],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_LENDER_THREAD")) return mockLenderConnection(loanId ?? "");
+      return fetcher<LenderConnection>(`/loans/${loanId}/lender/connection`);
+    },
+    enabled: !!loanId,
+  });
+}
+
+export function useLenderMessages(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  return useQuery({
+    queryKey: ["lenderMessages", loanId ?? ""],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_LENDER_THREAD")) return mockLenderMessages(loanId ?? "");
+      return fetcher<LenderMessage[]>(`/loans/${loanId}/lender/messages`);
+    },
+    enabled: !!loanId,
+  });
+}
+
+export function useDraftLenderSend() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loanId, body }: { loanId: string; body: string }) =>
+      fetcher<LenderMessage>(`/loans/${loanId}/lender/send`, {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["lenderMessages", vars.loanId] });
+    },
+  });
+}
+
+export function useConnectLender() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loanId, lenderId }: { loanId: string; lenderId: string }) =>
+      fetcher<LenderConnection>(`/loans/${loanId}/connect-lender`, {
+        method: "POST",
+        body: JSON.stringify({ lender_id: lenderId }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["lenderConnection", vars.loanId] });
+      qc.invalidateQueries({ queryKey: ["loan", vars.loanId] });
+    },
+  });
+}
+
+export function useDisconnectLender() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (loanId: string) =>
+      fetcher<{ ok: boolean }>(`/loans/${loanId}/disconnect-lender`, { method: "POST" }),
+    onSuccess: (_, loanId) => {
+      qc.invalidateQueries({ queryKey: ["lenderConnection", loanId] });
+      qc.invalidateQueries({ queryKey: ["loan", loanId] });
+    },
+  });
+}
