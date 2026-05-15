@@ -125,22 +125,34 @@ export default function AgentLoanRoute() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
-      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, gap: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Icon name="x" size={18} color={t.ink} />
-        </Pressable>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink }} numberOfLines={1}>
-            {loan.address || "Subject property"}
-          </Text>
-          <Pressable onPress={shareDealId} hitSlop={6}>
-            <Text style={{ fontSize: 11, color: t.ink3, marginTop: 1 }}>
-              {loan.deal_id}{copied ? " · shared" : ""}
+      {/* Loan-summary header — hidden on the messages tab so the chat
+          gets full screen height. The chat tab renders its own sticky
+          deal_id strip, so the broker still sees which file they're
+          in. We keep a slim back-only row on chat for nav. */}
+      {tab !== "messages" ? (
+        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, gap: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Icon name="x" size={18} color={t.ink} />
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink }} numberOfLines={1}>
+              {loan.address || "Subject property"}
             </Text>
+            <Pressable onPress={shareDealId} hitSlop={6}>
+              <Text style={{ fontSize: 11, color: t.ink3, marginTop: 1 }}>
+                {loan.deal_id}{copied ? " · shared" : ""}
+              </Text>
+            </Pressable>
+          </View>
+          <DealHealthPill health={loan.deal_health ?? null} />
+        </View>
+      ) : (
+        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderBottomColor: t.line, borderBottomWidth: 1 }}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Icon name="x" size={18} color={t.ink} />
           </Pressable>
         </View>
-        <DealHealthPill health={loan.deal_health ?? null} />
-      </View>
+      )}
 
       {/* Pause banner — visible across every tab while AI is paused */}
       <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>

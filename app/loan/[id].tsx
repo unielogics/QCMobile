@@ -97,29 +97,34 @@ export default function LoanFile() {
         </Pressable>
       </View>
 
-      <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-        <Card pad={16}>
-          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-            <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: t.brandSoft, alignItems: "center", justifyContent: "center" }}>
-              <Icon name={iconName} size={22} color={t.brand} />
+      {/* Hide the loan-summary card on the chat tab so the thread has
+          the full screen height. The deal-id + address are already
+          surfaced inline on the chat tab's sticky strip. */}
+      {tab !== "chat" ? (
+        <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+          <Card pad={16}>
+            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+              <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: t.brandSoft, alignItems: "center", justifyContent: "center" }}>
+                <Icon name={iconName} size={22} color={t.brand} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: "700", color: t.ink, letterSpacing: -0.3 }}>{loan.address}</Text>
+                <Text numberOfLines={1} style={{ fontSize: 11.5, color: t.ink3, marginTop: 2 }}>
+                  {loan.city ?? "—"} · {typeLabel} · {loan.deal_id}
+                </Text>
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={{ fontSize: 17, fontWeight: "700", color: t.ink, letterSpacing: -0.4 }}>{QC_FMT.short(Number(loan.amount))}</Text>
+                <Text style={{ fontSize: 10.5, color: t.ink3, fontWeight: "600" }}>Close {closeStr}</Text>
+              </View>
             </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: "700", color: t.ink, letterSpacing: -0.3 }}>{loan.address}</Text>
-              <Text numberOfLines={1} style={{ fontSize: 11.5, color: t.ink3, marginTop: 2 }}>
-                {loan.city ?? "—"} · {typeLabel} · {loan.deal_id}
-              </Text>
+            <View style={{ marginTop: 14 }}>
+              <Stepper stages={PIPELINE_STAGES} current={stagePos} />
+              <StepperLabels stages={PIPELINE_STAGES} current={stagePos} />
             </View>
-            <View style={{ alignItems: "flex-end" }}>
-              <Text style={{ fontSize: 17, fontWeight: "700", color: t.ink, letterSpacing: -0.4 }}>{QC_FMT.short(Number(loan.amount))}</Text>
-              <Text style={{ fontSize: 10.5, color: t.ink3, fontWeight: "600" }}>Close {closeStr}</Text>
-            </View>
-          </View>
-          <View style={{ marginTop: 14 }}>
-            <Stepper stages={PIPELINE_STAGES} current={stagePos} />
-            <StepperLabels stages={PIPELINE_STAGES} current={stagePos} />
-          </View>
-        </Card>
-      </View>
+          </Card>
+        </View>
+      ) : null}
 
       {/* Tabs */}
       <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>

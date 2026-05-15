@@ -45,25 +45,25 @@ export function PauseBanner({ loanId, message }: Props) {
       style={{
         flexDirection: "row",
         alignItems: "center",
-        gap: 10,
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        borderRadius: 12,
+        gap: 8,
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 999,
         backgroundColor: t.warnBg,
         borderColor: t.warn,
         borderWidth: 1,
       }}
       accessibilityLiveRegion="polite"
     >
-      <Icon name="pause" size={14} color={t.warn} />
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={{ fontSize: 12.5, fontWeight: "800", color: t.warn, letterSpacing: -0.1 }}>
-          AI paused
-        </Text>
-        <Text style={{ fontSize: 11.5, color: t.ink2, marginTop: 2, lineHeight: 16 }}>
-          {message ?? `${who} is replying directly. The AI will resume in ~${minutes} min.`}
-        </Text>
-      </View>
+      <Icon name="pause" size={12} color={t.warn} />
+      <Text
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        style={{ flex: 1, minWidth: 0, fontSize: 12, color: t.ink2 }}
+      >
+        <Text style={{ fontWeight: "800", color: t.warn }}>AI paused · </Text>
+        {message ?? `${who} is replying. Resumes in ~${minutes} min.`}
+      </Text>
     </View>
   );
 }
