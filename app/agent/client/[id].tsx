@@ -68,9 +68,22 @@ export default function AgentClientRoute() {
   };
 
   const onMessage = async () => {
+    // Loan-specific conversation lives in the loan workspace chat
+    // (loan_chat_messages) — the same surface the client sees + the AI
+    // writes into. Sending here via the broker's per-user AI thread
+    // would leave the client unaware, so we route to the loan page's
+    // Messages tab whenever a loan exists. With no loan yet, fall back
+    // to the broker's account-level AI thread for note-taking.
     setBusy("message");
     try {
-      const thread = await findOrCreate.mutateAsync({ loan_id: activeLoan?.id ?? null });
+      if (activeLoan) {
+        router.push({
+          pathname: "/agent/loan/[id]",
+          params: { id: activeLoan.id, tab: "messages" },
+        } as Href);
+        return;
+      }
+      const thread = await findOrCreate.mutateAsync({ loan_id: null });
       router.push(`/agent/messages/${thread.id}` as Href);
     } catch {
       Alert.alert("Couldn't open the message thread");
