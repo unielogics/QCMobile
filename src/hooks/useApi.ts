@@ -1184,12 +1184,12 @@ export function useLoanWorkspace(loanId: string | null | undefined) {
   const key = useCacheKey();
   return useQuery({
     queryKey: ["loanWorkspace", loanId ?? "", key],
-    queryFn: async () => {
-      if (!hasBackend("BACKEND_HAS_LOAN_WORKSPACE")) {
-        return mockLoanWorkspace(loanId ?? "");
-      }
-      return fetcher<LoanWorkspace>(`/loans/${loanId}/workspace/state`);
-    },
+    // Backend endpoint has been live for months — feature flag removed.
+    // Keeping the read gated silently returned a mock workspace when
+    // EXPO_PUBLIC_BACKEND_HAS_LOAN_WORKSPACE wasn't set in EAS, which
+    // made the PauseBanner and chat thread render stale/empty even
+    // though the API responded fine.
+    queryFn: () => fetcher<LoanWorkspace>(`/loans/${loanId}/workspace/state`),
     enabled: !!loanId,
     refetchInterval: 60_000,
   });
@@ -1200,10 +1200,11 @@ export function useLoanChat(loanId: string | null | undefined) {
   const key = useCacheKey();
   return useQuery({
     queryKey: ["loanChat", loanId ?? "", key],
-    queryFn: async () => {
-      if (!hasBackend("BACKEND_HAS_LIVE_CHAT")) return [] as LoanChatMessage[];
-      return fetcher<LoanChatMessage[]>(`/loans/${loanId}/chat`);
-    },
+    // Backend endpoint has been live for months — feature flag removed.
+    // The send path (useSendLoanChat) was never gated, so messages
+    // persisted to the DB but reads silently returned [] when the
+    // EAS env var was missing. End result: 'I typed but nothing shows'.
+    queryFn: () => fetcher<LoanChatMessage[]>(`/loans/${loanId}/chat`),
     enabled: !!loanId,
     refetchInterval: 15_000,
   });
