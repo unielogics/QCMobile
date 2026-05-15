@@ -113,9 +113,46 @@ export interface RateSKU {
   delta_bps: number;
 }
 
+// Deal — agent-side transaction unit (Phase 3). A client can carry
+// multiple deals (buyer search, seller listing, investor purchase),
+// each promoted to its own Loan via mark-ready-for-lending.
+export interface Deal {
+  id: string;
+  client_id: string;
+  deal_type: string;
+  side: string;
+  status: string;
+  title: string;
+  summary: string | null;
+  property_id: string | null;
+  promoted_loan_id: string | null;
+  assigned_agent_id: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  property_type: string | null;
+  beds: number | null;
+  baths: number | null;
+  sqft: number | null;
+  year_built: number | null;
+  list_price: number | null;
+  target_price: number | null;
+  listing_status: string | null;
+  mls_number: string | null;
+  ai_status: string;
+  handoff_status: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Loan {
   id: string;
   deal_id: string;
+  // Set when this loan was promoted from a deal (Phase 3). Used by
+  // the chat surfaces to look up the (A) Agent deal-chat that
+  // preceded this funding file.
+  source_deal_id?: string | null;
   client_id: string;
   broker_id: string | null;
   address: string;

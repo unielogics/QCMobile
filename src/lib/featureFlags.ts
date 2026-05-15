@@ -21,6 +21,11 @@ const FLAGS = {
   BACKEND_HAS_LIVE_CHAT: process.env.EXPO_PUBLIC_BACKEND_HAS_LIVE_CHAT,
   BACKEND_HAS_LOAN_WORKSPACE: process.env.EXPO_PUBLIC_BACKEND_HAS_LOAN_WORKSPACE,
   BACKEND_HAS_LOAN_CRITERIA: process.env.EXPO_PUBLIC_BACKEND_HAS_LOAN_CRITERIA,
+  // (A) Agent deal-chat — multi-party broker + client + AI thread per
+  // Deal. Backed by the qcbackend patch under /tmp/qcbackend-patch.
+  // Until the patch is applied + container redeployed, leave this OFF
+  // so AIChatSheet keeps falling back to per-user ai_chat_threads.
+  BACKEND_HAS_DEAL_CHAT: process.env.EXPO_PUBLIC_BACKEND_HAS_DEAL_CHAT,
 } as const;
 
 export type FeatureFlag = keyof typeof FLAGS;

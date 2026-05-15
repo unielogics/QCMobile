@@ -9,6 +9,7 @@ import type {
   CreditSummary,
   User,
   Client,
+  Deal,
   RateSKU,
   Activity,
   Document,
@@ -1226,6 +1227,53 @@ export function useSendLoanChat() {
       qc.invalidateQueries({ queryKey: ["loanChat", vars.loanId] });
       qc.invalidateQueries({ queryKey: ["loanWorkspace", vars.loanId] });
       qc.invalidateQueries({ queryKey: ["activities", vars.loanId] });
+    },
+  });
+}
+
+// ── (A) Agent deal-chat — multi-party thread per Deal ─────────────────
+//
+// Backed by the qcbackend patch under /tmp/qcbackend-patch:
+//   GET  /api/v1/deals/{deal_id}/chat
+//   POST /api/v1/deals/{deal_id}/chat
+// Gated by BACKEND_HAS_DEAL_CHAT until the patch is deployed; falls back
+// to an empty array so the chat UI renders harmlessly otherwise.
+
+export function useDeal(dealId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["deal", dealId ?? "", key],
+    queryFn: () => fetcher<Deal>(`/deals/${dealId}`),
+    enabled: !!dealId,
+  });
+}
+
+export function useDealAgentChat(dealId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["dealAgentChat", dealId ?? "", key],
+    queryFn: async () => {
+      if (!hasBackend("BACKEND_HAS_DEAL_CHAT")) return [] as LoanChatMessage[];
+      return fetcher<LoanChatMessage[]>(`/deals/${dealId}/chat`);
+    },
+    enabled: !!dealId,
+    refetchInterval: 15_000,
+  });
+}
+
+export function useSendDealAgentChat() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ dealId, body, mode }: { dealId: string; body: string; mode: DealChatMode }) =>
+      fetcher<LoanChatSendResponse>(`/deals/${dealId}/chat`, {
+        method: "POST",
+        body: JSON.stringify({ body, mode }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["dealAgentChat", vars.dealId] });
     },
   });
 }

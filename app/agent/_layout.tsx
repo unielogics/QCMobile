@@ -6,6 +6,7 @@ export default function AgentStackLayout() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="loan/[id]" options={{ presentation: "card" }} />
       <Stack.Screen name="loan/new" options={{ presentation: "modal" }} />
+      <Stack.Screen name="deal/[id]" options={{ presentation: "card" }} />
       <Stack.Screen name="client/[id]" options={{ presentation: "card" }} />
       <Stack.Screen name="client/new" options={{ presentation: "modal" }} />
       <Stack.Screen name="messages/[threadId]" options={{ presentation: "card" }} />

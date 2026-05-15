@@ -178,12 +178,13 @@ export function usePushTapHandler(): void {
   const coldHandled = useRef(false);
 
   const routeFromData = (
-    data: { kind?: string; thread_id?: string; loan_id?: string | null } | undefined,
+    data: { kind?: string; thread_id?: string; loan_id?: string | null; deal_id?: string | null } | undefined,
   ) => {
     if (!data) return;
+    const isOperator = me?.role === Role.BROKER || me?.role === Role.SUPER_ADMIN || me?.role === Role.LOAN_EXEC;
+    // (L) Loan workspace message — the funding-team thread, multi-party.
     if (data.kind === "loan_chat_message" && data.loan_id) {
-      const isBroker = me?.role === Role.BROKER || me?.role === Role.SUPER_ADMIN || me?.role === Role.LOAN_EXEC;
-      if (isBroker) {
+      if (isOperator) {
         router.push({
           pathname: "/agent/loan/[id]",
           params: { id: data.loan_id, tab: "messages" },
@@ -193,6 +194,21 @@ export function usePushTapHandler(): void {
           pathname: "/loan/[id]",
           params: { id: data.loan_id, tab: "chat" },
         });
+      }
+      return;
+    }
+    // (A) Agent deal-chat message — pre-funding (and ongoing) nurture
+    // thread, also multi-party. Brokers land on the deal page; clients
+    // don't have a dedicated deal-detail page yet so they fall back to
+    // their home (the AI Concierge picker covers it).
+    if (data.kind === "deal_chat_message" && data.deal_id) {
+      if (isOperator) {
+        router.push({
+          pathname: "/agent/deal/[id]",
+          params: { id: data.deal_id, tab: "chat" },
+        });
+      } else {
+        router.push({ pathname: "/(tabs)" });
       }
       return;
     }

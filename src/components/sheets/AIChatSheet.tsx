@@ -30,7 +30,8 @@ import {
   View,
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
+import { hasBackend } from "@/lib/featureFlags";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
@@ -489,6 +490,21 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
 
               {loans.map((loan: Loan) => {
                 const th = loanThreadMap.get(loan.id);
+                // When BACKEND_HAS_DEAL_CHAT is on AND the loan carries
+                // the source_deal_id back-ref, route to the new
+                // multi-party deal-chat surface instead of the legacy
+                // per-user AI thread.
+                const dealChatReady =
+                  hasBackend("BACKEND_HAS_DEAL_CHAT") && !!loan.source_deal_id;
+                const onPress = dealChatReady
+                  ? () => {
+                      onClose();
+                      router.push({
+                        pathname: "/agent/deal/[id]",
+                        params: { id: loan.source_deal_id as string, tab: "chat" },
+                      } as Href);
+                    }
+                  : () => openThread(loan.id);
                 return (
                   <ConversationRow
                     key={loan.id}
@@ -501,7 +517,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                     empty={!th}
                     isActive={!!th && activeThreadId === th.id}
                     unread={!!th?.unread}
-                    onPress={() => openThread(loan.id)}
+                    onPress={onPress}
                   />
                 );
               })}
