@@ -50,7 +50,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 const TABS = [
   { id: "activity", label: "Activity",   icon: "flag" },
-  { id: "chat",     label: "AI Chat",    icon: "chat" },
+  { id: "chat",     label: "Chat",       icon: "chat" },
   { id: "docs",     label: "Documents",  icon: "doc" },
   { id: "sim",      label: "Simulation", icon: "sliders" },
 ] as const;
