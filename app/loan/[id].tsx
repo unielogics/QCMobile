@@ -15,19 +15,23 @@ import { Card, Stepper, StepperLabels } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
 import { Slider } from "@/design-system/Slider";
 import { QC_FMT } from "@/design-system/tokens";
+import * as DocumentPicker from "expo-document-picker";
 import {
   useLoan,
-  useLoanActivity,
   useDocuments,
   useLoanChat,
   useLoanWorkspace,
   useSendLoanChat,
+  useLoanTodo,
+  useCreateCalendarEvent,
+  useUploadDocument,
 } from "@/hooks/useApi";
 import type { Document } from "@/lib/types";
 import { LoanSimulator } from "@/components/LoanSimulator";
 import { LoanChatThread } from "@/components/loan/LoanChatThread";
 import { PauseBanner } from "@/components/loan/PauseBanner";
 import { KeyboardAware } from "@/components/KeyboardAware";
+import { Fab } from "@/components/Fab";
 
 const STAGE_KEYS = ["prequalified", "collecting_docs", "lender_connected", "processing", "closing", "funded"] as const;
 const PIPELINE_STAGES = ["Prequalified", "Processing", "Underwriting", "Closing", "Funded"];
@@ -49,7 +53,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 const TABS = [
-  { id: "activity", label: "Activity",   icon: "flag" },
+  { id: "todo",     label: "To Do",      icon: "check" },
   { id: "chat",     label: "Chat",       icon: "chat" },
   { id: "docs",     label: "Documents",  icon: "doc" },
   { id: "sim",      label: "Simulation", icon: "sliders" },
@@ -61,7 +65,7 @@ export default function LoanFile() {
   const router = useRouter();
   const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
   const { data: loan } = useLoan(id);
-  const initialTab: TabId = (TABS.find((t) => t.id === tabParam)?.id ?? "activity") as TabId;
+  const initialTab: TabId = (TABS.find((t) => t.id === tabParam)?.id ?? "todo") as TabId;
   const [tab, setTab] = useState<TabId>(initialTab);
 
   if (!loan) {
@@ -82,49 +86,40 @@ export default function LoanFile() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 12 }}>
+      {/* Slim header — identical on every tab. Address + type · L-id
+          on the left, value + close X on the right. No stepper / no
+          circle / no Pipeline pill: maximize space for tab content. */}
+      <View
+        style={{
+          flexDirection: "row", alignItems: "center", gap: 12,
+          paddingHorizontal: 16, paddingTop: 6, paddingBottom: 12,
+          borderBottomColor: t.line, borderBottomWidth: 1,
+        }}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: "700", color: t.ink, letterSpacing: -0.3 }}>
+            {loan.address}
+          </Text>
+          <Text numberOfLines={1} style={{ fontSize: 11.5, color: t.ink3, marginTop: 2 }}>
+            {typeLabel} · {loan.deal_id}
+          </Text>
+        </View>
+        <Text style={{ fontSize: 16, fontWeight: "700", color: t.ink, letterSpacing: -0.4 }}>
+          {QC_FMT.short(Number(loan.amount))}
+        </Text>
         <Pressable
           onPress={() => router.back()}
+          hitSlop={8}
+          accessibilityLabel="Close"
           style={{
-            alignSelf: "flex-start",
-            flexDirection: "row", alignItems: "center", gap: 4,
-            paddingVertical: 6, paddingHorizontal: 10,
-            borderRadius: 999, backgroundColor: t.surface, borderWidth: 1, borderColor: t.line,
+            width: 32, height: 32, borderRadius: 999,
+            backgroundColor: t.surface, borderWidth: 1, borderColor: t.line,
+            alignItems: "center", justifyContent: "center",
           }}
         >
-          <Icon name="arrowL" size={14} color={t.ink2} />
-          <Text style={{ fontSize: 12, fontWeight: "600", color: t.ink2 }}>Pipeline</Text>
+          <Icon name="x" size={16} color={t.ink2} />
         </Pressable>
       </View>
-
-      {/* Hide the loan-summary card on the chat tab so the thread has
-          the full screen height. The deal-id + address are already
-          surfaced inline on the chat tab's sticky strip. */}
-      {tab !== "chat" ? (
-        <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-          <Card pad={16}>
-            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-              <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: t.brandSoft, alignItems: "center", justifyContent: "center" }}>
-                <Icon name={iconName} size={22} color={t.brand} />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: "700", color: t.ink, letterSpacing: -0.3 }}>{loan.address}</Text>
-                <Text numberOfLines={1} style={{ fontSize: 11.5, color: t.ink3, marginTop: 2 }}>
-                  {loan.city ?? "—"} · {typeLabel} · {loan.deal_id}
-                </Text>
-              </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={{ fontSize: 17, fontWeight: "700", color: t.ink, letterSpacing: -0.4 }}>{QC_FMT.short(Number(loan.amount))}</Text>
-                <Text style={{ fontSize: 10.5, color: t.ink3, fontWeight: "600" }}>Close {closeStr}</Text>
-              </View>
-            </View>
-            <View style={{ marginTop: 14 }}>
-              <Stepper stages={PIPELINE_STAGES} current={stagePos} />
-              <StepperLabels stages={PIPELINE_STAGES} current={stagePos} />
-            </View>
-          </Card>
-        </View>
-      ) : null}
 
       {/* Tabs */}
       <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
@@ -149,7 +144,7 @@ export default function LoanFile() {
         </View>
       </View>
 
-      {tab === "activity" && <ActivityPane loanId={loan.id} />}
+      {tab === "todo" && <ToDoPane loanId={loan.id} />}
       {tab === "chat" && <ChatPane loanId={loan.id} dealId={loan.deal_id} />}
       {tab === "docs" && <DocsPane loanId={loan.id} />}
       {tab === "sim" && <LoanSimulator loan={loan} />}
@@ -157,33 +152,245 @@ export default function LoanFile() {
   );
 }
 
-function ActivityPane({ loanId }: { loanId: string }) {
+function ToDoPane({ loanId }: { loanId: string }) {
   const { t } = useTheme();
-  const { data: activity = [], isLoading } = useLoanActivity(loanId);
+  const router = useRouter();
+  const { data: items = [], isLoading } = useLoanTodo(loanId);
+  const [picker, setPicker] = useState(false);
+
+  const groups: { key: string; label: string; kind: "document" | "call" | "task" }[] = [
+    { key: "document", label: "Documents", kind: "document" },
+    { key: "call", label: "Calls", kind: "call" },
+    { key: "task", label: "Asks", kind: "task" },
+  ];
+  const iconFor = (k: string) => (k === "document" ? "doc" : k === "call" ? "cal" : "check");
 
   return (
-    <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, gap: 10 }} showsVerticalScrollIndicator={false}>
-      {isLoading ? <Text style={{ color: t.ink3, fontSize: 13 }}>Loading activity…</Text> : null}
-      {!isLoading && activity.length === 0 ? (
-        <Card pad={16}>
-          <Text style={{ color: t.ink3, fontSize: 13 }}>No activity yet for this loan.</Text>
-        </Card>
-      ) : null}
-      {activity.map((e) => (
-        <Card key={e.id} pad={14}>
-          <Text style={{ fontSize: 11, color: t.ink3, fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }) }}>
-            {new Date(e.occurred_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-          </Text>
-          <Text style={{ fontSize: 14, color: t.ink, fontWeight: "600", marginTop: 4 }}>{e.summary}</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
-            <View style={{ paddingVertical: 3, paddingHorizontal: 8, borderRadius: 999, backgroundColor: t.chip }}>
-              <Text style={{ fontSize: 10.5, fontWeight: "600", color: t.ink2 }}>{e.kind}</Text>
+    <View style={{ flex: 1 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 96, gap: 14 }} showsVerticalScrollIndicator={false}>
+        {isLoading ? <Text style={{ color: t.ink3, fontSize: 13 }}>Loading your to-do…</Text> : null}
+        {!isLoading && items.length === 0 ? (
+          <Card pad={16}>
+            <Text style={{ color: t.ink3, fontSize: 13 }}>
+              You're all caught up — nothing outstanding on this loan.
+            </Text>
+          </Card>
+        ) : null}
+        {groups.map((g) => {
+          const rows = items.filter((i) => i.kind === g.kind);
+          if (rows.length === 0) return null;
+          return (
+            <View key={g.key} style={{ gap: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: "800", color: t.ink3, letterSpacing: 1.2, textTransform: "uppercase" }}>
+                {g.label}
+              </Text>
+              {rows.map((it) => (
+                <Pressable
+                  key={it.id}
+                  onPress={() => { if (it.deeplink) router.push(it.deeplink as never); }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 12 }}
+                >
+                  <Card pad={14} style={{ flex: 1 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: t.brandSoft, alignItems: "center", justifyContent: "center" }}>
+                        <Icon name={iconFor(it.kind)} size={15} color={t.brand} />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: "700", color: t.ink }}>{it.title}</Text>
+                        {it.subtitle ? (
+                          <Text numberOfLines={1} style={{ fontSize: 12, color: t.ink3, marginTop: 2 }}>{it.subtitle}</Text>
+                        ) : null}
+                      </View>
+                      <Icon name="chevR" size={14} color={t.ink4} />
+                    </View>
+                  </Card>
+                </Pressable>
+              ))}
             </View>
-            {e.actor_label ? <Text style={{ fontSize: 11, color: t.ink3 }}>{e.actor_label}</Text> : null}
-          </View>
-        </Card>
-      ))}
-    </ScrollView>
+          );
+        })}
+      </ScrollView>
+
+      <Fab icon="plus" onPress={() => setPicker(true)} />
+      <RequestSheet
+        visible={picker}
+        loanId={loanId}
+        onClose={() => setPicker(false)}
+      />
+    </View>
+  );
+}
+
+// Bottom action chooser → Request a call (calendar event) or Send a
+// note (loan workspace chat + optional attachment).
+function RequestSheet({
+  visible,
+  loanId,
+  onClose,
+}: {
+  visible: boolean;
+  loanId: string;
+  onClose: () => void;
+}) {
+  const { t } = useTheme();
+  const insets = useSafeAreaInsets();
+  const [mode, setMode] = useState<"menu" | "call" | "note">("menu");
+  const [callWhen, setCallWhen] = useState("");
+  const [noteText, setNoteText] = useState("");
+  const [file, setFile] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  const createEvent = useCreateCalendarEvent();
+  const upload = useUploadDocument();
+  const sendChat = useSendLoanChat();
+
+  const reset = () => { setMode("menu"); setCallWhen(""); setNoteText(""); setFile(null); setFlash(null); setBusy(false); };
+  const close = () => { reset(); onClose(); };
+
+  const submitCall = async () => {
+    setBusy(true);
+    try {
+      // Default start = tomorrow 10:00 local; the agent adjusts. The
+      // borrower's preferred window rides along in the description.
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      d.setHours(10, 0, 0, 0);
+      await createEvent.mutateAsync({
+        loan_id: loanId,
+        kind: "call",
+        title: "Call requested by borrower",
+        description: callWhen.trim() ? `Preferred: ${callWhen.trim()}` : "Borrower requested a call.",
+        who: "Agent",
+        starts_at: d.toISOString(),
+        duration_min: 30,
+      });
+      setFlash("Call request sent. Your agent will confirm a time.");
+      setTimeout(close, 1400);
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Couldn't send the request.");
+      setBusy(false);
+    }
+  };
+
+  const pickFile = async () => {
+    const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+    if (!res.canceled && res.assets?.[0]) {
+      const a = res.assets[0];
+      setFile({ uri: a.uri, name: a.name, mimeType: a.mimeType ?? "application/octet-stream" });
+    }
+  };
+
+  const submitNote = async () => {
+    if (!noteText.trim()) { setFlash("Add a note message first."); return; }
+    setBusy(true);
+    try {
+      let attachment_document_id: string | null = null;
+      if (file) {
+        const up = await upload.mutateAsync({ loan_id: loanId, file, is_other: true });
+        attachment_document_id = up.document_id;
+      }
+      await sendChat.mutateAsync({
+        loanId,
+        body: noteText.trim(),
+        mode: "chat",
+        attachment_document_id,
+      });
+      setFlash("Note sent to your team.");
+      setTimeout(close, 1200);
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Couldn't send the note.");
+      setBusy(false);
+    }
+  };
+
+  if (!visible) return null;
+  return (
+    <Pressable
+      onPress={close}
+      style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}
+    >
+      <Pressable
+        onPress={() => {}}
+        style={{
+          backgroundColor: t.bg, borderTopLeftRadius: 18, borderTopRightRadius: 18,
+          padding: 18, paddingBottom: Math.max(18, insets.bottom + 12), gap: 12,
+        }}
+      >
+        {flash ? (
+          <Text style={{ fontSize: 12.5, color: flash.includes("Couldn") ? t.danger : t.brand, fontWeight: "600" }}>
+            {flash}
+          </Text>
+        ) : null}
+
+        {mode === "menu" ? (
+          <>
+            <Text style={{ fontSize: 16, fontWeight: "800", color: t.ink }}>What do you need?</Text>
+            <Pressable onPress={() => setMode("call")} style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 12, backgroundColor: t.surface, borderWidth: 1, borderColor: t.line }}>
+              <Icon name="cal" size={18} color={t.brand} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: t.ink }}>Request a call</Text>
+                <Text style={{ fontSize: 12, color: t.ink3 }}>Your agent or loan rep will reach out.</Text>
+              </View>
+            </Pressable>
+            <Pressable onPress={() => setMode("note")} style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 12, backgroundColor: t.surface, borderWidth: 1, borderColor: t.line }}>
+              <Icon name="chat" size={18} color={t.brand} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: t.ink }}>Send a note</Text>
+                <Text style={{ fontSize: 12, color: t.ink3 }}>Message your team, attach a file.</Text>
+              </View>
+            </Pressable>
+          </>
+        ) : mode === "call" ? (
+          <>
+            <Text style={{ fontSize: 16, fontWeight: "800", color: t.ink }}>Request a call</Text>
+            <TextInput
+              value={callWhen}
+              onChangeText={setCallWhen}
+              placeholder="When works for you? (e.g. Tue afternoon)"
+              placeholderTextColor={t.ink4}
+              style={{ borderWidth: 1, borderColor: t.line, borderRadius: 10, padding: 12, color: t.ink, fontSize: 14, backgroundColor: t.surface2 }}
+            />
+            <Pressable
+              onPress={submitCall}
+              disabled={busy}
+              style={{ backgroundColor: busy ? t.chip : t.brand, paddingVertical: 13, borderRadius: 12, alignItems: "center" }}
+            >
+              <Text style={{ color: busy ? t.ink4 : "#fff", fontWeight: "800", fontSize: 14 }}>
+                {busy ? "Sending…" : "Send request"}
+              </Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={{ fontSize: 16, fontWeight: "800", color: t.ink }}>Send a note</Text>
+            <TextInput
+              value={noteText}
+              onChangeText={setNoteText}
+              placeholder="Type your message…"
+              placeholderTextColor={t.ink4}
+              multiline
+              style={{ minHeight: 80, borderWidth: 1, borderColor: t.line, borderRadius: 10, padding: 12, color: t.ink, fontSize: 14, backgroundColor: t.surface2 }}
+            />
+            <Pressable onPress={pickFile} style={{ flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: t.line, backgroundColor: t.surface }}>
+              <Icon name="paperclip" size={14} color={t.ink2} />
+              <Text numberOfLines={1} style={{ fontSize: 12, color: t.ink2, maxWidth: 200 }}>
+                {file ? file.name : "Attach a file"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={submitNote}
+              disabled={busy}
+              style={{ backgroundColor: busy ? t.chip : t.brand, paddingVertical: 13, borderRadius: 12, alignItems: "center" }}
+            >
+              <Text style={{ color: busy ? t.ink4 : "#fff", fontWeight: "800", fontSize: 14 }}>
+                {busy ? "Sending…" : "Send note"}
+              </Text>
+            </Pressable>
+          </>
+        )}
+      </Pressable>
+    </Pressable>
   );
 }
 

@@ -1219,15 +1219,72 @@ export function useSendLoanChat() {
   const fetcher = useAuthedFetch();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ loanId, body, mode }: { loanId: string; body: string; mode: DealChatMode }) =>
+    mutationFn: ({
+      loanId,
+      body,
+      mode,
+      attachment_document_id,
+    }: {
+      loanId: string;
+      body: string;
+      mode: DealChatMode;
+      attachment_document_id?: string | null;
+    }) =>
       fetcher<LoanChatSendResponse>(`/loans/${loanId}/chat`, {
         method: "POST",
-        body: JSON.stringify({ body, mode }),
+        body: JSON.stringify({ body, mode, attachment_document_id }),
       }),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["loanChat", vars.loanId] });
       qc.invalidateQueries({ queryKey: ["loanWorkspace", vars.loanId] });
       qc.invalidateQueries({ queryKey: ["activities", vars.loanId] });
+    },
+  });
+}
+
+// Client-facing To-Do for a loan — outstanding docs + upcoming calls
+// + open agent/AI asks. Backend composes it from existing data.
+export interface LoanTodoItem {
+  id: string;
+  kind: "document" | "call" | "task";
+  title: string;
+  subtitle?: string | null;
+  status?: string | null;
+  due_at?: string | null;
+  deeplink?: string | null;
+}
+export function useLoanTodo(loanId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["loanTodo", loanId ?? "", key],
+    queryFn: () => fetcher<LoanTodoItem[]>(`/loans/${loanId}/todo`),
+    enabled: !!loanId,
+    refetchInterval: 60_000,
+  });
+}
+
+// Create a calendar event (used for client "request a call"). Backend
+// POST /calendar accepts CurrentUser with no role gate, so a client
+// may book a call against their own loan.
+export function useCreateCalendarEvent() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      loan_id: string;
+      kind: string;
+      title: string;
+      description?: string | null;
+      who?: string | null;
+      starts_at: string;
+      duration_min?: number | null;
+      owner_user_id?: string | null;
+    }) =>
+      fetcher(`/calendar`, { method: "POST", body: JSON.stringify(payload) }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["loanTodo", vars.loan_id] });
+      qc.invalidateQueries({ queryKey: ["calendar"] });
     },
   });
 }

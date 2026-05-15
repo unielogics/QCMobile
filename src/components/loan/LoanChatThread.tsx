@@ -10,8 +10,9 @@
 // messages render at all (clients never see them).
 
 import { useEffect, useRef } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { useTheme } from "@/design-system/ThemeProvider";
+import { Icon } from "@/design-system/Icon";
 import type { LoanChatMessage, DealChatRole } from "@/lib/mocks";
 
 interface Props {
@@ -70,7 +71,7 @@ function Bubble({ m, viewerRole }: { m: LoanChatMessage; viewerRole: Props["view
     <View style={{ alignSelf: ownSide ? "flex-end" : "flex-start", maxWidth: "86%", gap: 4 }}>
       {!isClient ? (
         <Text style={{ fontSize: 10.5, fontWeight: "700", color: tone.label, letterSpacing: 0.6, textTransform: "uppercase" }}>
-          {roleLabel(m.from_role)}
+          {roleLabel(m)}
           {isInternal ? " · internal" : ""}
         </Text>
       ) : null}
@@ -85,6 +86,22 @@ function Bubble({ m, viewerRole }: { m: LoanChatMessage; viewerRole: Props["view
         }}
       >
         <Text style={{ fontSize: 14, color: tone.text, lineHeight: 19 }}>{m.body}</Text>
+        {m.attachment ? (
+          <Pressable
+            onPress={() => { if (m.attachment?.url) Linking.openURL(m.attachment.url); }}
+            style={{
+              flexDirection: "row", alignItems: "center", gap: 6,
+              marginTop: 8, paddingVertical: 6, paddingHorizontal: 10,
+              borderRadius: 8, backgroundColor: t.surface2,
+              borderWidth: 1, borderColor: t.line,
+            }}
+          >
+            <Icon name="doc" size={13} color={tone.text} />
+            <Text numberOfLines={1} style={{ flex: 1, fontSize: 12, color: tone.text }}>
+              {m.attachment.name}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
       <Text style={{ fontSize: 10.5, color: t.ink4 }}>
         {new Date(m.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
@@ -101,11 +118,13 @@ function bubbleTone(role: DealChatRole, t: ReturnType<typeof useTheme>["t"]) {
   return { bg: t.surface, border: t.line, borderWidth: 1, text: t.ink, label: t.ink3 };
 }
 
-function roleLabel(role: DealChatRole): string {
-  if (role === "ai") return "AI";
-  if (role === "super_admin") return "Operator";
-  if (role === "broker") return "Agent";
-  if (role === "broker_internal") return "Agent note";
-  if (role === "client") return "Client";
-  return role;
+function roleLabel(m: LoanChatMessage): string {
+  if (m.from_role === "ai") return "Smart Assistant";
+  const roleWord =
+    m.from_role === "super_admin" ? "Operator"
+    : m.from_role === "broker" ? "Agent"
+    : m.from_role === "broker_internal" ? "Agent note"
+    : m.from_role === "client" ? "Client"
+    : String(m.from_role);
+  return m.from_name ? `${m.from_name} (${roleWord})` : roleWord;
 }

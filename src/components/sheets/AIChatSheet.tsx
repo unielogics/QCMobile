@@ -484,7 +484,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                     marginBottom: 4,
                   }}
                 >
-                  Agent (A) — by loan
+                  Active Chats
                 </Text>
               ) : null}
 

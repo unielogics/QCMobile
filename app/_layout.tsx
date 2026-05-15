@@ -8,6 +8,8 @@ import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { ThemeProvider } from "@/design-system/ThemeProvider";
 import { useCurrentUser } from "@/hooks/useApi";
+import { AIChatSheet } from "@/components/sheets/AIChatSheet";
+import { useConcierge } from "@/store/concierge";
 import {
   usePushRegistration,
   useRegisterPushToken,
@@ -83,15 +85,27 @@ function AuthGate() {
   }, [isLoaded, isSignedIn, segments, router, user]);
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="agent" />
-      <Stack.Screen name="loan/[id]" options={{ presentation: "card" }} />
-      <Stack.Screen name="pipeline" options={{ presentation: "card" }} />
-      <Stack.Screen name="credit-pull" options={{ presentation: "modal" }} />
-    </Stack>
+    <>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="agent" />
+        <Stack.Screen name="loan/[id]" options={{ presentation: "card" }} />
+        <Stack.Screen name="pipeline" options={{ presentation: "card" }} />
+        <Stack.Screen name="credit-pull" options={{ presentation: "modal" }} />
+      </Stack>
+      {/* One globally-mounted AI Concierge, opened from the TopBar
+          icon via the concierge store. Lives here so it overlays
+          every screen regardless of the active navigator. */}
+      {isSignedIn ? <ConciergeHost /> : null}
+    </>
   );
+}
+
+function ConciergeHost() {
+  const open = useConcierge((s) => s.open);
+  const close = useConcierge((s) => s.closeConcierge);
+  return <AIChatSheet visible={open} onClose={close} context="Concierge" />;
 }
 
 export default function RootLayout() {

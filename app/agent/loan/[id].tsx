@@ -125,34 +125,36 @@ export default function AgentLoanRoute() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
-      {/* Loan-summary header — hidden on the messages tab so the chat
-          gets full screen height. The chat tab renders its own sticky
-          deal_id strip, so the broker still sees which file they're
-          in. We keep a slim back-only row on chat for nav. */}
-      {tab !== "messages" ? (
-        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, gap: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
-          <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Icon name="x" size={18} color={t.ink} />
-          </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink }} numberOfLines={1}>
-              {loan.address || "Subject property"}
+      {/* Slim header — identical on every tab. Address + type · L-id
+          + value + close X. No DealHealthPill / summary block here
+          (that detail lives in the Snapshot tab). */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ fontSize: 15, fontWeight: "800", color: t.ink }} numberOfLines={1}>
+            {loan.address || "Subject property"}
+          </Text>
+          <Pressable onPress={shareDealId} hitSlop={6}>
+            <Text style={{ fontSize: 11, color: t.ink3, marginTop: 1 }} numberOfLines={1}>
+              {String(loan.type).replace(/_/g, " ")} · {loan.deal_id}{copied ? " · shared" : ""}
             </Text>
-            <Pressable onPress={shareDealId} hitSlop={6}>
-              <Text style={{ fontSize: 11, color: t.ink3, marginTop: 1 }}>
-                {loan.deal_id}{copied ? " · shared" : ""}
-              </Text>
-            </Pressable>
-          </View>
-          <DealHealthPill health={loan.deal_health ?? null} />
-        </View>
-      ) : (
-        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderBottomColor: t.line, borderBottomWidth: 1 }}>
-          <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Icon name="x" size={18} color={t.ink} />
           </Pressable>
         </View>
-      )}
+        <Text style={{ fontSize: 15, fontWeight: "700", color: t.ink, letterSpacing: -0.3 }}>
+          {QC_FMT.short(Number(loan.amount || 0))}
+        </Text>
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={8}
+          accessibilityLabel="Close"
+          style={{
+            width: 32, height: 32, borderRadius: 999,
+            backgroundColor: t.surface, borderWidth: 1, borderColor: t.line,
+            alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <Icon name="x" size={16} color={t.ink} />
+        </Pressable>
+      </View>
 
       {/* Pause banner — visible across every tab while AI is paused */}
       <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>

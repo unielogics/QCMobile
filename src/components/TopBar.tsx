@@ -7,7 +7,8 @@ import { useRouter } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 import { QcLogo } from "@/design-system/QcLogo";
-import { useMe } from "@/hooks/useApi";
+import { useMe, useAIChatThreads } from "@/hooks/useApi";
+import { useConcierge } from "@/store/concierge";
 
 function initialsOf(name: string | undefined): string {
   if (!name) return "?";
@@ -27,6 +28,9 @@ export function TopBar({
   const { t, isDark, toggle } = useTheme();
   const router = useRouter();
   const { data: user } = useMe();
+  const openConcierge = useConcierge((s) => s.openConcierge);
+  const { data: threads = [] } = useAIChatThreads();
+  const unreadCount = threads.filter((th) => th.unread).length;
 
   return (
     <View style={{
@@ -75,37 +79,51 @@ export function TopBar({
             }}>
             <Icon name={isDark ? "sun" : "moon"} size={16} color={t.ink2} />
           </Pressable>
-          {onAIPress ? (
-            <Pressable
-              onPress={onAIPress}
-              accessibilityLabel="AI secretary"
-              style={({ pressed }) => ({
-                width: 36, height: 36, borderRadius: 11,
-                backgroundColor: t.surface,
-                borderWidth: 1, borderColor: t.line,
-                alignItems: "center", justifyContent: "center",
-                opacity: pressed ? 0.85 : 1,
-              })}>
-              <Icon name="spark" size={16} color={t.petrol} />
-            </Pressable>
-          ) : (
-            <Pressable
-              accessibilityLabel="Notifications"
-              style={{
-                width: 36, height: 36, borderRadius: 11,
-                backgroundColor: t.surface,
-                borderWidth: 1, borderColor: t.line,
+          {/* AI Concierge — orange launcher, opens the globally
+              mounted AIChatSheet via the concierge store. Sits next
+              to notifications with a minimalistic unread badge. */}
+          <Pressable
+            onPress={() => (onAIPress ? onAIPress() : openConcierge())}
+            accessibilityLabel="AI Concierge"
+            style={({ pressed }) => ({
+              width: 36, height: 36, borderRadius: 11,
+              backgroundColor: t.warnBg,
+              borderWidth: 1, borderColor: t.warn,
+              alignItems: "center", justifyContent: "center",
+              opacity: pressed ? 0.85 : 1,
+            })}>
+            <Icon name="chat" size={16} color={t.warn} />
+            {unreadCount > 0 ? (
+              <View style={{
+                position: "absolute", top: -5, right: -5,
+                minWidth: 16, height: 16, borderRadius: 999,
+                paddingHorizontal: 4,
+                backgroundColor: t.danger,
+                borderWidth: 1.5, borderColor: t.bg,
                 alignItems: "center", justifyContent: "center",
               }}>
-              <Icon name="bell" size={16} color={t.ink2} />
-              <View style={{
-                position: "absolute", top: 7, right: 8,
-                width: 7, height: 7, borderRadius: 999,
-                backgroundColor: t.danger,
-                borderWidth: 1.5, borderColor: t.surface,
-              }} />
-            </Pressable>
-          )}
+                <Text style={{ color: "#fff", fontSize: 9.5, fontWeight: "800" }}>
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </Text>
+              </View>
+            ) : null}
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Notifications"
+            style={{
+              width: 36, height: 36, borderRadius: 11,
+              backgroundColor: t.surface,
+              borderWidth: 1, borderColor: t.line,
+              alignItems: "center", justifyContent: "center",
+            }}>
+            <Icon name="bell" size={16} color={t.ink2} />
+            <View style={{
+              position: "absolute", top: 7, right: 8,
+              width: 7, height: 7, borderRadius: 999,
+              backgroundColor: t.danger,
+              borderWidth: 1.5, borderColor: t.surface,
+            }} />
+          </Pressable>
         </View>
       </View>
 

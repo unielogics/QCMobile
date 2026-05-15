@@ -234,7 +234,7 @@ function ChatHeroPicker({
       {loans.length > 0 ? (
         <>
           <Text style={{ fontSize: 10.5, fontWeight: "800", color: t.warn, letterSpacing: 1.0, marginTop: 4, marginLeft: 2 }}>
-            LOANS
+            ACTIVE CHATS
           </Text>
           {loans.map((loan) => (
             <Pressable

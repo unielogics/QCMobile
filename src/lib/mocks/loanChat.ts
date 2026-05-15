@@ -16,12 +16,22 @@ export type DealChatMode =
   | "broker_question"
   | "broker_suggestion";
 
+export interface ChatAttachment {
+  document_id: string;
+  name: string;
+  mime?: string | null;
+  url?: string | null;
+}
+
 export interface LoanChatMessage {
   id: string;
   body: string;
   from_role: DealChatRole;
+  from_user_id?: string | null;
+  from_name?: string | null;
   client_visible: boolean;
   created_at: string;
+  attachment?: ChatAttachment | null;
 }
 
 export interface LoanWorkspace {
