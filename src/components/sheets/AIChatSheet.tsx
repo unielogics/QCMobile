@@ -39,7 +39,6 @@ import {
   useAIChatThread,
   useAIChatThreads,
   useChatAttachmentInit,
-  useCurrentUser,
   useFindOrCreateChatThread,
   useLoans,
   useMarkClientFinanceReady,
@@ -50,7 +49,6 @@ import {
   useSendBuyerAgreement,
   useSendListingAgreement,
 } from "@/hooks/useApi";
-import { Role } from "@/lib/enums.generated";
 import type { AIChatThread, ChatAction, ChatAttachment, Loan } from "@/lib/types";
 
 interface Props {
@@ -101,24 +99,6 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
   const activeThreadQ = useAIChatThread(activeThreadId);
   const messages = activeThreadQ.data?.messages ?? [];
   const activeThreadLoanId = activeThreadQ.data?.loan_id ?? null;
-
-  // Belt-and-suspenders: if anything (a push deep-link, a stale caller)
-  // opens this sheet on a loan-scoped AI thread, redirect to the loan's
-  // workspace chat instead. Per-loan conversations live there, not here.
-  const { data: me } = useCurrentUser();
-  useEffect(() => {
-    if (!visible) return;
-    if (activeThreadLoanId) {
-      const isOperator = me?.role === Role.BROKER || me?.role === Role.SUPER_ADMIN || me?.role === Role.LOAN_EXEC;
-      onClose();
-      if (isOperator) {
-        router.push({ pathname: "/agent/loan/[id]", params: { id: activeThreadLoanId, tab: "messages" } });
-      } else {
-        router.push({ pathname: "/loan/[id]", params: { id: activeThreadLoanId, tab: "chat" } });
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeThreadLoanId, visible, me?.role]);
 
   // Derived list — exactly one Account row + one row per loan.
   // Threads in the DB that don't match (orphans, dupes pre-0018)
@@ -485,10 +465,46 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                 onPress={() => openThread(null)}
               />
 
-              {/* Per-loan AI threads intentionally hidden — loan-specific
-                  conversations live on the loan's own Chat tab (the
-                  workspace thread broker + client + AI share). The
-                  account-AI thread above is the only AI surface here. */}
+              {/* (A) Agent threads — one per loan/deal. These are the
+                  broker's AI-assisted nurture conversations, kept
+                  separate from the lending team's (L) workspace chat
+                  on the loan detail page. After promotion both remain
+                  available: (A) for the broker's ongoing relationship,
+                  (L) for the funding team. */}
+              {loans.length > 0 ? (
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: "700",
+                    color: t.ink3,
+                    letterSpacing: 1.4,
+                    textTransform: "uppercase",
+                    marginTop: 14,
+                    marginBottom: 4,
+                  }}
+                >
+                  Agent (A) — by loan
+                </Text>
+              ) : null}
+
+              {loans.map((loan: Loan) => {
+                const th = loanThreadMap.get(loan.id);
+                return (
+                  <ConversationRow
+                    key={loan.id}
+                    t={t}
+                    title={`(A) ${loan.deal_id}`}
+                    subtitleHeader={loan.address ?? ""}
+                    subtitle={th?.last_message_preview ?? "No conversation yet — tap to start."}
+                    timestamp={th?.last_message_at ?? null}
+                    accent="brand"
+                    empty={!th}
+                    isActive={!!th && activeThreadId === th.id}
+                    unread={!!th?.unread}
+                    onPress={() => openThread(loan.id)}
+                  />
+                );
+              })}
 
               {threadsLoading && threads.length === 0 ? (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12 }}>
