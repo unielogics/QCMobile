@@ -155,7 +155,8 @@ export default function LoanFile() {
 function ToDoPane({ loanId }: { loanId: string }) {
   const { t } = useTheme();
   const router = useRouter();
-  const { data: items = [], isLoading } = useLoanTodo(loanId);
+  const [filter, setFilter] = useState<"pending" | "completed" | "all">("pending");
+  const { data: items = [], isLoading } = useLoanTodo(loanId, filter);
   const [picker, setPicker] = useState(false);
 
   const groups: { key: string; label: string; kind: "document" | "call" | "task" }[] = [
@@ -164,9 +165,36 @@ function ToDoPane({ loanId }: { loanId: string }) {
     { key: "task", label: "Asks", kind: "task" },
   ];
   const iconFor = (k: string) => (k === "document" ? "doc" : k === "call" ? "cal" : "check");
+  const filters: { key: "pending" | "completed" | "all"; label: string }[] = [
+    { key: "pending", label: "Pending" },
+    { key: "completed", label: "Completed" },
+    { key: "all", label: "All" },
+  ];
 
   return (
     <View style={{ flex: 1 }}>
+      <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+        <View style={{ flexDirection: "row", gap: 4, backgroundColor: t.chip, borderRadius: 10, padding: 3 }}>
+          {filters.map((f) => {
+            const active = filter === f.key;
+            return (
+              <Pressable
+                key={f.key}
+                onPress={() => setFilter(f.key)}
+                style={{
+                  flex: 1, paddingVertical: 7, borderRadius: 8,
+                  backgroundColor: active ? t.surface : "transparent",
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: "700", color: active ? t.ink : t.ink3 }}>
+                  {f.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 96, gap: 14 }} showsVerticalScrollIndicator={false}>
         {isLoading ? <Text style={{ color: t.ink3, fontSize: 13 }}>Loading your to-do…</Text> : null}
         {!isLoading && items.length === 0 ? (

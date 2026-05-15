@@ -1253,12 +1253,16 @@ export interface LoanTodoItem {
   due_at?: string | null;
   deeplink?: string | null;
 }
-export function useLoanTodo(loanId: string | null | undefined) {
+export type TodoStatusFilter = "pending" | "completed" | "all";
+export function useLoanTodo(
+  loanId: string | null | undefined,
+  status: TodoStatusFilter = "pending",
+) {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
   return useQuery({
-    queryKey: ["loanTodo", loanId ?? "", key],
-    queryFn: () => fetcher<LoanTodoItem[]>(`/loans/${loanId}/todo`),
+    queryKey: ["loanTodo", loanId ?? "", status, key],
+    queryFn: () => fetcher<LoanTodoItem[]>(`/loans/${loanId}/todo?status=${status}`),
     enabled: !!loanId,
     refetchInterval: 60_000,
   });
