@@ -12,9 +12,7 @@ import { useRouter } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
 import { TopBar } from "@/components/TopBar";
-import { Fab } from "@/components/Fab";
-import { AIChatSheet } from "@/components/sheets/AIChatSheet";
-import { useAIChatThreads, useCalendar, useUpdateCalendarEvent } from "@/hooks/useApi";
+import { useCalendar, useUpdateCalendarEvent } from "@/hooks/useApi";
 import { KIND_META } from "@/lib/sample-data";
 import type { CalendarEvent } from "@/lib/types";
 
@@ -56,10 +54,7 @@ const HHMM = (iso: string) =>
 export default function CalendarScreen() {
   const { t } = useTheme();
   const [filter, setFilter] = useState<FilterId>("all");
-  const [showAIChat, setShowAIChat] = useState(false);
   const { data: events = [], isLoading, isRefetching, error, refetch } = useCalendar();
-  const { data: chatThreads = [] } = useAIChatThreads();
-  const hasUnread = useMemo(() => chatThreads.some((th) => th.unread), [chatThreads]);
   const update = useUpdateCalendarEvent();
   const router = useRouter();
 
@@ -319,15 +314,6 @@ export default function CalendarScreen() {
         )}
       </ScrollView>
 
-      {/* AI Intelligent Underwriter — same FAB pattern as the
-          dashboard. The borrower can ask "what's coming up next
-          week?" or "anything overdue?" without leaving the calendar. */}
-      <Fab onPress={() => setShowAIChat(true)} icon="chat" unread={hasUnread} />
-      <AIChatSheet
-        visible={showAIChat}
-        onClose={() => setShowAIChat(false)}
-        context="From your calendar"
-      />
     </SafeAreaView>
   );
 }

@@ -24,7 +24,6 @@ import { QC_FMT } from "@/design-system/tokens";
 import { FredChart } from "@/components/FredChart";
 import { RateDetailModal } from "@/components/RateDetailModal";
 import {
-  useAIChatThreads,
   useCalendar,
   useCurrentUser,
   useDashboardReport,
@@ -35,7 +34,6 @@ import {
 import { Role } from "@/lib/enums.generated";
 import type { Loan } from "@/lib/types";
 import { TopBar } from "@/components/TopBar";
-import { Fab } from "@/components/Fab";
 import { AIChatSheet } from "@/components/sheets/AIChatSheet";
 
 const STAGE_KEYS = ["prequalified", "collecting_docs", "lender_connected", "processing", "closing", "funded"] as const;
@@ -98,8 +96,6 @@ export function SelfDirectedHome() {
   // simulator's flows (already there).
   const [showAIChat, setShowAIChat] = useState(false);
   const [forcedThreadId, setForcedThreadId] = useState<string | null>(null);
-  const { data: threads = [] } = useAIChatThreads();
-  const hasUnread = useMemo(() => threads.some((th) => th.unread), [threads]);
 
   // Notification-tap deep-link: `?openThread=<id>` (set by
   // usePushTapHandler in src/lib/notifications.ts) opens the chat
@@ -346,14 +342,6 @@ export function SelfDirectedHome() {
         ) : null}
       </ScrollView>
 
-      <Fab
-        onPress={() => {
-          setForcedThreadId(null);
-          setShowAIChat(true);
-        }}
-        icon="chat"
-        unread={hasUnread}
-      />
       <AIChatSheet
         visible={showAIChat}
         onClose={() => {
