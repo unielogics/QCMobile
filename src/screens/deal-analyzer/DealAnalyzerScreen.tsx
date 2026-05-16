@@ -16,6 +16,7 @@ import {
   useMyClient,
   useCreditCurrent,
   useSaveFixFlipScenario,
+  useUpdateFixFlipScenario,
   useClosingCostTiers,
 } from "@/hooks/useApi";
 import { analyzeFixFlip } from "@/lib/fixFlip/calc";
@@ -70,11 +71,13 @@ export function DealAnalyzerScreen() {
   const { data: credit } = useCreditCurrent();
   const { data: closingTiers } = useClosingCostTiers();
   const save = useSaveFixFlipScenario();
+  const update = useUpdateFixFlipScenario();
 
   const [i, setI] = useState<FixFlipInputs>(DEFAULTS);
   const [stepIdx, setStepIdx] = useState(0);
   const [flash, setFlash] = useState<string | null>(null);
   const [stateOpen, setStateOpen] = useState(false);
+  const [savedId, setSavedId] = useState<string | null>(null);
   const step: Step = STEPS[stepIdx];
 
   const derivedCredit =
@@ -126,20 +129,32 @@ export function DealAnalyzerScreen() {
     </View>
   );
 
-  const onSave = async () => {
+  // Auto-save on "Analyze Deal". First analyze creates the run;
+  // editing inputs and re-analyzing PATCHes the same row so we never
+  // pile up duplicates.
+  const autoSave = async () => {
+    if (result.validationErrors.length) return;
+    const body = {
+      status: "saved",
+      payload: { inputs, result } as unknown as Record<string, unknown>,
+      deal_score: result.dealScore,
+      deal_grade: result.dealGrade,
+    };
     try {
-      await save.mutateAsync({
-        client_id: client?.id ?? undefined,
-        status: "saved",
-        payload: { inputs, result } as unknown as Record<string, unknown>,
-        deal_score: result.dealScore,
-        deal_grade: result.dealGrade,
-      });
-      setFlash("Scenario saved.");
+      if (savedId) {
+        await update.mutateAsync({ id: savedId, ...body });
+      } else {
+        const row = await save.mutateAsync({
+          client_id: client?.id ?? undefined,
+          ...body,
+        });
+        setSavedId(row.id);
+      }
+      setFlash("Saved.");
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Couldn't save.");
     }
-    setTimeout(() => setFlash(null), 3000);
+    setTimeout(() => setFlash(null), 2500);
   };
 
   const gradeC = (g: string) =>
@@ -214,14 +229,14 @@ export function DealAnalyzerScreen() {
               {fld("After repair value (ARV)", inputs.arv, (s) => set("arv", num(s)))}
               {fld("Rehab budget", inputs.rehabCost, (s) => set("rehabCost", num(s)))}
               {fld(
-                "Rehab Safety Buffer",
+                "Rehab Safety Buffer (%)",
                 inputs.rehabContingencyPct * 100,
                 (s) => set("rehabContingencyPct", num(s) / 100),
                 "10",
                 "Extra cushion (as a % of the rehab budget) in case the rehab runs over budget. 10% is a common starting point.",
               )}
               {fld(
-                "Realtor Fees",
+                "Realtor Fees (%)",
                 inputs.sellingCostPct * 100,
                 (s) => set("sellingCostPct", num(s) / 100),
                 "6",
@@ -407,26 +422,21 @@ export function DealAnalyzerScreen() {
                   ))}
                 </Collapsible>
 
-                <Pressable onPress={onSave} disabled={save.isPending} style={{ backgroundColor: save.isPending ? t.chip : t.brand, paddingVertical: 14, borderRadius: 12, alignItems: "center" }}>
-                  <Text style={{ color: save.isPending ? t.ink4 : "#fff", fontWeight: "800", fontSize: 14 }}>{save.isPending ? "Saving…" : "Save Scenario"}</Text>
-                </Pressable>
                 <Text style={{ fontSize: 11, color: t.ink3 }}>{DISCLAIMER}</Text>
               </>
             )
           ) : null}
 
-          {/* Wizard nav */}
-          <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 4 }}>
-            <Pressable
-              onPress={() => setStepIdx((x) => Math.max(0, x - 1))}
-              disabled={stepIdx === 0}
-              style={{ paddingVertical: 12, paddingHorizontal: 20, borderRadius: 12, borderWidth: 1, borderColor: t.line, opacity: stepIdx === 0 ? 0.4 : 1 }}
-            >
-              <Text style={{ fontSize: 14, fontWeight: "700", color: t.ink2 }}>Back</Text>
-            </Pressable>
-            {step !== "Results" ? (
+          {/* Wizard nav — forward only; edits from Results are via the
+              header pencil (→ Deal Numbers). */}
+          {step !== "Results" ? (
+            <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 4 }}>
               <Pressable
-                onPress={() => stepValid(step) && setStepIdx((x) => Math.min(STEPS.length - 1, x + 1))}
+                onPress={() => {
+                  if (!stepValid(step)) return;
+                  if (step === "Review") autoSave();
+                  setStepIdx((x) => Math.min(STEPS.length - 1, x + 1));
+                }}
                 disabled={!stepValid(step)}
                 style={{ paddingVertical: 12, paddingHorizontal: 20, borderRadius: 12, backgroundColor: stepValid(step) ? t.brand : t.chip }}
               >
@@ -434,8 +444,8 @@ export function DealAnalyzerScreen() {
                   {step === "Review" ? "Analyze Deal" : "Next"}
                 </Text>
               </Pressable>
-            ) : null}
-          </View>
+            </View>
+          ) : null}
         </ScrollView>
       </KeyboardAware>
     </SafeAreaView>
@@ -525,9 +535,9 @@ function ScenarioCard({
 
 function Row({ t, k, v, strong, color }: { t: T; k: string; v: string; strong?: boolean; color?: string }) {
   return (
-    <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 }}>
-      <Text style={{ fontSize: 11.5, color: t.ink3 }}>{k}</Text>
-      <Text style={{ fontSize: 12, fontWeight: strong ? "800" : "600", color: color ?? t.ink }}>{v}</Text>
+    <View style={{ flexDirection: "row", alignItems: "flex-start", paddingVertical: 3, gap: 6 }}>
+      <Text style={{ flex: 1, fontSize: 11.5, color: t.ink3 }}>{k}</Text>
+      <Text style={{ flexShrink: 0, textAlign: "right", fontSize: 12, fontWeight: strong ? "800" : "600", color: color ?? t.ink }}>{v}</Text>
     </View>
   );
 }

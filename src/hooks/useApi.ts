@@ -1277,7 +1277,7 @@ interface ClosingCostTierRow {
   from_amount: number | null;
   to_amount: number | null;
   percentage: number;
-  minimum_dollar: number;
+  percentage_no_construction: number;
   sort_order: number;
 }
 
@@ -1295,7 +1295,7 @@ export function useClosingCostTiers() {
         fromAmount: r.from_amount,
         toAmount: r.to_amount,
         percentage: Number(r.percentage),
-        minimumDollar: Number(r.minimum_dollar),
+        percentageNoConstruction: Number(r.percentage_no_construction),
       }));
     },
     staleTime: 5 * 60 * 1000,
