@@ -78,6 +78,9 @@ export function DealAnalyzerScreen() {
   const [flash, setFlash] = useState<string | null>(null);
   const [stateOpen, setStateOpen] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
+  // Which construction coverage the Results view reflects. The whole
+  // output (summary, visuals, HUD, programs) follows this toggle.
+  const [coverage, setCoverage] = useState<"financed" | "self">("financed");
   const step: Step = STEPS[stepIdx];
 
   const derivedCredit =
@@ -88,10 +91,17 @@ export function DealAnalyzerScreen() {
     () => ({ ...i, creditScore: derivedCredit, experience: derivedExperience }),
     [i, derivedCredit, derivedExperience],
   );
-  const result = useMemo(
+  const resultFinanced = useMemo(
     () => analyzeFixFlip(inputs, { closingTiers }),
     [inputs, closingTiers],
   );
+  const resultSelf = useMemo(
+    () => analyzeFixFlip(inputs, { closingTiers, selfFundRehab: true }),
+    [inputs, closingTiers],
+  );
+  // `result` drives everything the user sees in Results; financed is
+  // the canonical one we persist.
+  const result = coverage === "financed" ? resultFinanced : resultSelf;
 
   const set = <K extends keyof FixFlipInputs>(k: K, v: FixFlipInputs[K]) =>
     setI((p) => ({ ...p, [k]: v }));
@@ -133,12 +143,12 @@ export function DealAnalyzerScreen() {
   // editing inputs and re-analyzing PATCHes the same row so we never
   // pile up duplicates.
   const autoSave = async () => {
-    if (result.validationErrors.length) return;
+    if (resultFinanced.validationErrors.length) return;
     const body = {
       status: "saved",
-      payload: { inputs, result } as unknown as Record<string, unknown>,
-      deal_score: result.dealScore,
-      deal_grade: result.dealGrade,
+      payload: { inputs, result: resultFinanced } as unknown as Record<string, unknown>,
+      deal_score: resultFinanced.dealScore,
+      deal_grade: resultFinanced.dealGrade,
     };
     try {
       if (savedId) {
@@ -307,14 +317,16 @@ export function DealAnalyzerScreen() {
                     <Text style={{ fontSize: 12, fontWeight: "700", color: t.ink3, textTransform: "uppercase", letterSpacing: 0.8 }}>Deal grade</Text>
                     <Pill bg={t.chip} color={gradeC(result.dealGrade)}>{result.dealGrade} · {result.dealScore}/100</Pill>
                   </View>
-                  <View style={{ marginTop: 10 }}>
-                    {result.withinArvEnvelope ? (
-                      <Pill bg={t.brandSoft} color={t.brand}>Within 75% ARV · borrower protected</Pill>
-                    ) : (
-                      <Pill bg={t.dangerBg} color={t.danger}>
-                        Over 75% ARV by {money(result.arvEnvelopeOverflow)} · your liability outside the loan
-                      </Pill>
-                    )}
+                  <View style={{ marginTop: 10, borderRadius: 10, padding: 10, backgroundColor: result.withinArvEnvelope ? t.brandSoft : t.dangerBg }}>
+                    <Text style={{ fontSize: 13, fontWeight: "800", color: result.withinArvEnvelope ? t.brand : t.danger }}>
+                      You're at {(result.arvUsedPct * 100).toFixed(1)}% of ARV
+                      <Text style={{ fontWeight: "600" }}> (lenders cap at 75%)</Text>
+                    </Text>
+                    <Text style={{ fontSize: 12, color: result.withinArvEnvelope ? t.brand : t.danger, marginTop: 3 }}>
+                      {result.withinArvEnvelope
+                        ? `Borrower protected — you could still pull up to ${money(result.arvHeadroom)} more and stay under 75%.`
+                        : `Over the 75% ceiling by ${money(result.arvEnvelopeOverflow)} — that amount is your liability outside the loan.`}
+                    </Text>
                   </View>
                   <View style={{ flexDirection: "row", marginTop: 14, gap: 12 }}>
                     <View style={{ flex: 1 }}>
@@ -335,9 +347,11 @@ export function DealAnalyzerScreen() {
                   </View>
                 </Card>
 
-                {/* ── Construction: financed vs self-funded ── */}
+                {/* ── Construction: financed vs self-funded ──
+                    Tapping a card switches EVERYTHING below (summary,
+                    visuals, HUD, programs) to that scenario. */}
                 <Text style={{ fontSize: 11, fontWeight: "700", color: t.ink3, textTransform: "uppercase", letterSpacing: 0.8 }}>
-                  Construction coverage
+                  Construction coverage · tap to switch the whole view
                 </Text>
                 <View style={{ flexDirection: "row", gap: 10 }}>
                   <ScenarioCard
@@ -346,6 +360,8 @@ export function DealAnalyzerScreen() {
                     sub="Lender draws rehab (≤75% ARV)"
                     s={result.constructionScenarios.financed}
                     accent={t.brand}
+                    active={coverage === "financed"}
+                    onPress={() => setCoverage("financed")}
                   />
                   <ScenarioCard
                     t={t}
@@ -353,8 +369,15 @@ export function DealAnalyzerScreen() {
                     sub="Construction stays outside the loan"
                     s={result.constructionScenarios.selfFunded}
                     accent={t.ink2}
+                    active={coverage === "self"}
+                    onPress={() => setCoverage("self")}
                   />
                 </View>
+                <Text style={{ fontSize: 11.5, color: t.ink3, marginTop: -2 }}>
+                  Showing: <Text style={{ fontWeight: "800", color: t.ink }}>
+                    {coverage === "financed" ? "Construction financed" : "You fund construction"}
+                  </Text>. Everything below reflects this case.
+                </Text>
 
                 {/* ── Fund-flow visuals ── */}
                 <Card pad={14}>
@@ -366,7 +389,7 @@ export function DealAnalyzerScreen() {
                 </Card>
 
                 {/* ── HUD: prominent, header always visible ── */}
-                <HudBlock t={t} result={result} />
+                <HudBlock t={t} result={result} arv={inputs.arv} />
 
                 {/* ── Collapsible detail ── */}
                 <Collapsible t={t} title="Why this result">
@@ -508,6 +531,8 @@ function ScenarioCard({
   sub,
   s,
   accent,
+  active,
+  onPress,
 }: {
   t: T;
   title: string;
@@ -520,16 +545,34 @@ function ScenarioCard({
     holdMonths: number;
   };
   accent: string;
+  active?: boolean;
+  onPress?: () => void;
 }) {
   return (
-    <Card pad={12} style={{ flex: 1, borderTopColor: accent, borderTopWidth: 3 }}>
-      <Text style={{ fontSize: 13, fontWeight: "800", color: t.ink }}>{title}</Text>
+    <Pressable
+      onPress={onPress}
+      style={{
+        flex: 1,
+        borderRadius: 14,
+        borderTopColor: accent,
+        borderTopWidth: 3,
+        borderColor: active ? accent : t.line,
+        borderWidth: active ? 2 : 1,
+        backgroundColor: active ? t.surface : t.surface2,
+        padding: 12,
+        opacity: active ? 1 : 0.7,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Text style={{ flex: 1, fontSize: 13, fontWeight: "800", color: t.ink }}>{title}</Text>
+        {active ? <Icon name="check" size={14} color={accent} /> : null}
+      </View>
       <Text style={{ fontSize: 11, color: t.ink3, marginBottom: 8 }}>{sub}</Text>
       <Row t={t} k="Cash to close" v={money(s.estimatedCashToClose)} strong />
       <Row t={t} k="Construction you fund" v={money(s.constructionOutsideLoan)} />
       <Row t={t} k="Loan amount" v={money(s.loanAmount)} />
       <Row t={t} k="Net profit" v={money(s.projectedNetProfit)} color={s.projectedNetProfit > 0 ? t.brand : t.danger} />
-    </Card>
+    </Pressable>
   );
 }
 
@@ -631,17 +674,80 @@ function ProfitWaterfall({
   );
 }
 
-function HudBlock({ t, result }: { t: T; result: ReturnType<typeof analyzeFixFlip> }) {
+type HudLine = { k: string; v: number; kind?: "cost" | "total" | "credit" | "final" };
+
+function HudRow({ t, l, arv }: { t: T; l: HudLine; arv: number }) {
+  const isTotal = l.kind === "total" || l.kind === "final";
+  const credit = l.kind === "credit";
+  const pct = arv > 0 ? (Math.abs(l.v) / arv) * 100 : 0;
+  const amount = credit ? `(${money(Math.abs(l.v))})` : money(l.v);
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: l.kind === "final" ? 8 : 4,
+        borderTopColor: t.line,
+        borderTopWidth: l.kind === "final" ? 1 : 0,
+        marginTop: l.kind === "final" ? 4 : 0,
+      }}
+    >
+      <Text
+        style={{
+          flex: 1,
+          fontSize: 12.5,
+          fontWeight: isTotal ? "800" : "400",
+          color: isTotal ? t.ink : t.ink3,
+        }}
+      >
+        {l.k}
+      </Text>
+      <Text
+        style={{
+          width: 104,
+          textAlign: "right",
+          fontSize: 12.5,
+          fontWeight: isTotal ? "900" : "700",
+          color: credit ? t.brand : isTotal ? t.ink : t.ink2,
+        }}
+      >
+        {amount}
+      </Text>
+      <Text
+        style={{
+          width: 54,
+          textAlign: "right",
+          fontSize: 11.5,
+          color: t.ink3,
+        }}
+      >
+        ({pct.toFixed(1)}%)
+      </Text>
+    </View>
+  );
+}
+
+function HudBlock({
+  t,
+  result,
+  arv,
+}: {
+  t: T;
+  result: ReturnType<typeof analyzeFixFlip>;
+  arv: number;
+}) {
   const [open, setOpen] = useState(false);
-  const lines: { k: string; v: number }[] = [
-    { k: "Purchase price", v: result.totalProjectCost - result.rehabContingencyAmount },
-    { k: "Closing costs", v: result.estimatedClosingCosts },
-    { k: "Lender points", v: result.lenderPointsCost },
-    { k: "Rehab safety buffer", v: result.rehabContingencyAmount },
-    { k: "Holding / carry", v: result.estimatedHoldingCosts },
-    { k: "Interest paid", v: result.estimatedInterestPaid },
-    { k: "Selling costs (realtor)", v: result.estimatedSellingCosts },
-    { k: "Loan amount (credit)", v: -result.loanAmount },
+  const lines: HudLine[] = [
+    { k: "Purchase price", v: result.totalProjectCost - result.rehabContingencyAmount, kind: "cost" },
+    { k: "Closing costs", v: result.estimatedClosingCosts, kind: "cost" },
+    { k: "Lender points", v: result.lenderPointsCost, kind: "cost" },
+    { k: "Rehab safety buffer", v: result.rehabContingencyAmount, kind: "cost" },
+    { k: "Holding / carry", v: result.estimatedHoldingCosts, kind: "cost" },
+    { k: "Interest paid", v: result.estimatedInterestPaid, kind: "cost" },
+    { k: "Selling costs (realtor)", v: result.estimatedSellingCosts, kind: "cost" },
+    { k: "Total fees & costs", v: result.totalFeesAndCosts, kind: "total" },
+    { k: "Loan amount (credit)", v: -result.loanAmount, kind: "credit" },
+    { k: "Estimated cash to close", v: result.estimatedCashToClose, kind: "final" },
   ];
   return (
     <Card pad={14} style={{ borderColor: t.brand, borderWidth: 1 }}>
@@ -651,20 +757,24 @@ function HudBlock({ t, result }: { t: T; result: ReturnType<typeof analyzeFixFli
             Closing estimate (HUD)
           </Text>
           <Text style={{ fontSize: 18, fontWeight: "900", color: t.ink, marginTop: 2 }}>
-            Estimated cash to close {money(result.estimatedCashToClose)}
+            Cash to close {money(result.estimatedCashToClose)}
+          </Text>
+          <Text style={{ fontSize: 11, color: t.ink3, marginTop: 2 }}>
+            Total fees & costs {money(result.totalFeesAndCosts)} — cash to close is only the
+            money due at the table, not the whole project.
           </Text>
         </View>
         <Icon name={open ? "chevU" : "chevD"} size={16} color={t.brand} />
       </Pressable>
       {open ? (
         <View style={{ marginTop: 10, borderTopColor: t.line, borderTopWidth: 1, paddingTop: 8 }}>
+          <View style={{ flexDirection: "row", paddingBottom: 4 }}>
+            <Text style={{ flex: 1, fontSize: 10.5, fontWeight: "700", color: t.ink4, textTransform: "uppercase", letterSpacing: 0.6 }}>Item</Text>
+            <Text style={{ width: 104, textAlign: "right", fontSize: 10.5, fontWeight: "700", color: t.ink4, textTransform: "uppercase", letterSpacing: 0.6 }}>Amount</Text>
+            <Text style={{ width: 54, textAlign: "right", fontSize: 10.5, fontWeight: "700", color: t.ink4, textTransform: "uppercase", letterSpacing: 0.6 }}>% ARV</Text>
+          </View>
           {lines.map((l) => (
-            <View key={l.k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 4 }}>
-              <Text style={{ fontSize: 12.5, color: t.ink3 }}>{l.k}</Text>
-              <Text style={{ fontSize: 12.5, fontWeight: "700", color: l.v < 0 ? t.brand : t.ink }}>
-                {l.v < 0 ? `(${money(-l.v)})` : money(l.v)}
-              </Text>
-            </View>
+            <HudRow key={l.k} t={t} l={l} arv={arv} />
           ))}
         </View>
       ) : null}
