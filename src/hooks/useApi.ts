@@ -1164,6 +1164,7 @@ export function useAgentPlaybook(playbookType: "buyer" | "seller" | "cadence") {
 // ─────────────────────────────────────────────────────────────────────────
 
 import { hasBackend } from "@/lib/featureFlags";
+import type { ClosingCostTier } from "@/lib/fixFlip/types";
 import {
   mockFundingMetrics, type FundingMetrics,
   mockDealSecretarySummary, type DealSecretarySummary,
@@ -1268,6 +1269,36 @@ export function useFixFlipScenarios() {
   return useQuery({
     queryKey: ["fixFlipScenarios", key],
     queryFn: () => fetcher<FixFlipScenarioRow[]>(`/fix-flip/scenarios`),
+  });
+}
+
+interface ClosingCostTierRow {
+  id: string;
+  from_amount: number | null;
+  to_amount: number | null;
+  percentage: number;
+  minimum_dollar: number;
+  sort_order: number;
+}
+
+// SUPER_ADMIN-configured closing-cost tiers. Read-only here — the
+// Deal Analyzer feeds these into analyzeFixFlip(inputs, { closingTiers }).
+export function useClosingCostTiers() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["closingCostTiers", key],
+    queryFn: async (): Promise<ClosingCostTier[]> => {
+      const rows = await fetcher<ClosingCostTierRow[]>(`/closing-costs`);
+      return rows.map((r) => ({
+        id: r.id,
+        fromAmount: r.from_amount,
+        toAmount: r.to_amount,
+        percentage: Number(r.percentage),
+        minimumDollar: Number(r.minimum_dollar),
+      }));
+    },
+    staleTime: 5 * 60 * 1000,
   });
 }
 
