@@ -149,9 +149,22 @@ export function DealAnalyzerScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
-        <Pressable onPress={() => router.back()} hitSlop={8}><Icon name="x" size={18} color={t.ink} /></Pressable>
         <Text style={{ fontSize: 16, fontWeight: "800", color: t.ink }}>Deal Analyzer</Text>
-        <Text style={{ marginLeft: "auto", fontSize: 12, color: t.ink3 }}>{stepIdx + 1}/{STEPS.length} · {step}</Text>
+        <Text style={{ fontSize: 12, color: t.ink3 }}>{stepIdx + 1}/{STEPS.length} · {step}</Text>
+        <View style={{ marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 14 }}>
+          {step === "Results" ? (
+            <Pressable
+              onPress={() => setStepIdx(STEPS.indexOf("Deal Numbers"))}
+              hitSlop={8}
+              accessibilityLabel="Edit inputs"
+            >
+              <Icon name="sliders" size={18} color={t.ink2} />
+            </Pressable>
+          ) : null}
+          <Pressable onPress={() => router.back()} hitSlop={8} accessibilityLabel="Close">
+            <Icon name="x" size={18} color={t.ink} />
+          </Pressable>
+        </View>
       </View>
 
       <KeyboardAware excludeTabBar>
@@ -279,6 +292,15 @@ export function DealAnalyzerScreen() {
                     <Text style={{ fontSize: 12, fontWeight: "700", color: t.ink3, textTransform: "uppercase", letterSpacing: 0.8 }}>Deal grade</Text>
                     <Pill bg={t.chip} color={gradeC(result.dealGrade)}>{result.dealGrade} · {result.dealScore}/100</Pill>
                   </View>
+                  <View style={{ marginTop: 10 }}>
+                    {result.withinArvEnvelope ? (
+                      <Pill bg={t.brandSoft} color={t.brand}>Within 75% ARV · borrower protected</Pill>
+                    ) : (
+                      <Pill bg={t.dangerBg} color={t.danger}>
+                        Over 75% ARV by {money(result.arvEnvelopeOverflow)} · your liability outside the loan
+                      </Pill>
+                    )}
+                  </View>
                   <View style={{ flexDirection: "row", marginTop: 14, gap: 12 }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 11, color: t.ink3, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 }}>Net profit</Text>
@@ -306,14 +328,14 @@ export function DealAnalyzerScreen() {
                   <ScenarioCard
                     t={t}
                     title="Construction financed"
-                    sub="Lender draws the rehab"
+                    sub="Lender draws rehab (≤75% ARV)"
                     s={result.constructionScenarios.financed}
                     accent={t.brand}
                   />
                   <ScenarioCard
                     t={t}
                     title="You fund construction"
-                    sub="Rehab is your cash"
+                    sub="Construction stays outside the loan"
                     s={result.constructionScenarios.selfFunded}
                     accent={t.ink2}
                   />
@@ -350,6 +372,9 @@ export function DealAnalyzerScreen() {
                       <View style={{ alignItems: "flex-end" }}>
                         <Text style={{ fontSize: 12.5, fontWeight: "700", color: t.ink }}>Cash to close: {money(f.estimatedCashToClose)}</Text>
                         <Text style={{ fontSize: 11.5, color: t.ink3 }}>{money(f.loanAmount)} loan</Text>
+                        {f.constructionOutsideLoan > 0 ? (
+                          <Text style={{ fontSize: 11, color: t.ink4 }}>+ {money(f.constructionOutsideLoan)} outside loan</Text>
+                        ) : null}
                       </View>
                     </View>
                   ))}
@@ -477,7 +502,13 @@ function ScenarioCard({
   t: T;
   title: string;
   sub: string;
-  s: { loanAmount: number; estimatedCashToClose: number; projectedNetProfit: number; holdMonths: number };
+  s: {
+    loanAmount: number;
+    estimatedCashToClose: number;
+    constructionOutsideLoan: number;
+    projectedNetProfit: number;
+    holdMonths: number;
+  };
   accent: string;
 }) {
   return (
@@ -485,6 +516,7 @@ function ScenarioCard({
       <Text style={{ fontSize: 13, fontWeight: "800", color: t.ink }}>{title}</Text>
       <Text style={{ fontSize: 11, color: t.ink3, marginBottom: 8 }}>{sub}</Text>
       <Row t={t} k="Cash to close" v={money(s.estimatedCashToClose)} strong />
+      <Row t={t} k="Construction you fund" v={money(s.constructionOutsideLoan)} />
       <Row t={t} k="Loan amount" v={money(s.loanAmount)} />
       <Row t={t} k="Net profit" v={money(s.projectedNetProfit)} color={s.projectedNetProfit > 0 ? t.brand : t.danger} />
     </Card>
@@ -635,6 +667,7 @@ function CompareTable({ t, result }: { t: T; result: ReturnType<typeof analyzeFi
   const rows: { label: string; cell: (f: (typeof progs)[number]) => string }[] = [
     { label: "Loan", cell: (f) => money(f.loanAmount) },
     { label: "Cash to close", cell: (f) => money(f.estimatedCashToClose) },
+    { label: "Construction outside loan", cell: (f) => money(f.constructionOutsideLoan) },
     { label: "Rate", cell: (f) => `${(f.program.interestRate * 100).toFixed(2)}%` },
     { label: "Points", cell: (f) => `${f.program.points}` },
     { label: "Term", cell: (f) => `${f.program.termMonths}mo` },
