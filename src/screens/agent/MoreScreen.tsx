@@ -37,9 +37,11 @@ export function MoreScreen() {
 
   const rows: Row[] = [
     { icon: "user", label: "Profile", detail: user?.email ?? undefined, onPress: () => router.push("/agent/profile" as Href) },
+    { icon: "calc", label: "Deal Analyzer", detail: "Fix & flip decisions", onPress: () => router.push("/agent/deal-analyzer" as Href) },
+    { icon: "sliders", label: "Simulate", detail: "Pricing what-ifs", onPress: () => router.push("/agent/simulate" as Href) },
+    { icon: "bell", label: "Inbox", detail: "AI tasks + alerts", onPress: () => router.push("/agent/(tabs)/inbox" as Href) },
     { icon: "trend", label: "Performance", detail: "Funnel + velocity", onPress: () => router.push("/agent/performance" as Href) },
     { icon: "trend", label: "Rates", detail: "Today's market", onPress: () => router.push("/agent/rates" as Href) },
-    { icon: "cal", label: "Calendar", detail: "Upcoming events", onPress: () => router.push("/agent/calendar" as Href) },
     { icon: "gear", label: "Settings", onPress: () => router.push("/agent/settings" as Href) },
     { icon: "x", label: "Sign out", onPress: goSignOut, destructive: true },
   ];

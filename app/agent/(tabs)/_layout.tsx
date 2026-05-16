@@ -52,9 +52,19 @@ export default function AgentTabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="calendar"
+        options={{
+          title: "Calendar",
+          tabBarIcon: ({ color, focused }) => <TabIcon name="cal" color={color} focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
         name="inbox"
         options={{
           title: "Inbox",
+          // Moved into "More" — hidden from the bar (Calendar takes
+          // this slot) but the route stays valid.
+          href: null,
           tabBarIcon: ({ color, focused }) => <TabIcon name="bell" color={color} focused={focused} />,
         }}
       />

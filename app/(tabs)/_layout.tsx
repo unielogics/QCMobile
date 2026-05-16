@@ -81,8 +81,20 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="simulator"
         options={{
-          title: guided ? "My Deal" : "Simulate",
+          // Guided: this tab IS the Deal Analyzer. Self-directed: the
+          // classic Simulate tool (Deal Analyzer is its own tab below).
+          title: guided ? "Deal Analyzer" : "Simulate",
           tabBarIcon: ({ color, focused }) => <TabIcon name="sliders" color={color} focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="deal-analyzer"
+        options={{
+          title: "Deal Analyzer",
+          // Self-directed only — takes the old Profile slot and sits
+          // before Vault. Guided uses the simulator tab instead.
+          href: guided ? null : "/(tabs)/deal-analyzer",
+          tabBarIcon: ({ color, focused }) => <TabIcon name="calc" color={color} focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -96,6 +108,9 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: "Profile",
+          // Self-directed reaches Profile via the header avatar, so
+          // hide it from the bottom bar there. Guided keeps it.
+          href: guided ? "/(tabs)/profile" : null,
           tabBarIcon: ({ color, focused }) => <TabIcon name="user" color={color} focused={focused} />,
         }}
       />

@@ -14,6 +14,8 @@ export default function AgentStackLayout() {
       <Stack.Screen name="rates" options={{ presentation: "card" }} />
       <Stack.Screen name="settings" options={{ presentation: "card" }} />
       <Stack.Screen name="calendar" options={{ presentation: "card" }} />
+      <Stack.Screen name="deal-analyzer" options={{ presentation: "card" }} />
+      <Stack.Screen name="simulate" options={{ presentation: "card" }} />
       <Stack.Screen name="profile" options={{ presentation: "card" }} />
     </Stack>
   );

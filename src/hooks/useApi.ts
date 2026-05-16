@@ -1215,6 +1215,62 @@ export interface LoanChatSendResponse {
   paused_until: string | null;
 }
 
+// ── Fix & Flip Deal Analyzer scenarios ────────────────────────────────
+export interface FixFlipScenarioRow {
+  id: string;
+  created_by: string | null;
+  client_id: string | null;
+  deal_id: string | null;
+  loan_id: string | null;
+  status: string;
+  payload: Record<string, unknown> | null;
+  deal_score: number | null;
+  deal_grade: string | null;
+  created_at: string;
+  updated_at: string;
+}
+interface FixFlipScenarioBody {
+  client_id?: string | null;
+  deal_id?: string | null;
+  loan_id?: string | null;
+  status?: string;
+  payload: Record<string, unknown>;
+  deal_score?: number | null;
+  deal_grade?: string | null;
+}
+export function useSaveFixFlipScenario() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: FixFlipScenarioBody) =>
+      fetcher<FixFlipScenarioRow>(`/fix-flip/scenarios`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["fixFlipScenarios"] }),
+  });
+}
+export function useUpdateFixFlipScenario() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string } & Partial<FixFlipScenarioBody>) =>
+      fetcher<FixFlipScenarioRow>(`/fix-flip/scenarios/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["fixFlipScenarios"] }),
+  });
+}
+export function useFixFlipScenarios() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["fixFlipScenarios", key],
+    queryFn: () => fetcher<FixFlipScenarioRow[]>(`/fix-flip/scenarios`),
+  });
+}
+
 export function useSendLoanChat() {
   const fetcher = useAuthedFetch();
   const qc = useQueryClient();
