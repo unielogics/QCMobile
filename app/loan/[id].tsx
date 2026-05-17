@@ -438,21 +438,58 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
   // even when the loan tab isn't open.
   useLoanWorkspace(loanId);
   const send = useSendLoanChat();
+  const upload = useUploadDocument();
   const [draft, setDraft] = useState("");
+  const [staged, setStaged] = useState<{ document_id: string; name: string } | null>(null);
+  const [attachErr, setAttachErr] = useState<string | null>(null);
+
+  const pickAttachment = async () => {
+    if (upload.isPending) return;
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf", "image/*"],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (picked.canceled || picked.assets.length === 0) return;
+      const file = picked.assets[0];
+      const init = await upload.mutateAsync({
+        loan_id: loanId,
+        is_other: true,
+        file: {
+          uri: file.uri,
+          name: file.name ?? "attachment",
+          mimeType: file.mimeType ?? "application/octet-stream",
+        },
+      });
+      setStaged({ document_id: init.document_id, name: file.name ?? "attachment" });
+    } catch (e) {
+      setAttachErr(e instanceof Error ? e.message : "Couldn't attach the file.");
+      setTimeout(() => setAttachErr(null), 4000);
+    }
+  };
 
   const onSend = async () => {
     const text = draft.trim();
-    if (!text || send.isPending) return;
+    if ((!text && !staged) || send.isPending) return;
+    const att = staged;
     setDraft("");
+    setStaged(null);
     try {
       // CLIENT can only send mode=chat per backend _MODE_ALLOWED_ROLES.
       // Backend auto-replies with AI unless the loan is paused — in
       // which case the message is persisted and the AI stays quiet,
       // letting the broker/operator reply directly.
-      await send.mutateAsync({ loanId, body: text, mode: "chat" });
+      await send.mutateAsync({
+        loanId,
+        body: text || (att ? `Uploaded: ${att.name}` : ""),
+        mode: "chat",
+        attachment_document_id: att?.document_id ?? null,
+      });
     } catch (err) {
-      // Restore the draft so the user can retry.
+      // Restore the draft + attachment so the user can retry.
       setDraft(text);
+      if (att) setStaged(att);
     }
   };
 
@@ -507,9 +544,26 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
           <LoanChatThread messages={chat} viewerRole="client" />
         </View>
       )}
+      {staged || attachErr ? (
+        <View style={{ paddingHorizontal: 12, paddingTop: 8 }}>
+          {attachErr ? (
+            <Text style={{ fontSize: 12, color: t.danger, marginBottom: 6 }}>{attachErr}</Text>
+          ) : null}
+          {staged ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8, borderRadius: 10, backgroundColor: t.surface2, borderWidth: 1, borderColor: t.line }}>
+              <Icon name="paperclip" size={13} color={t.ink3} />
+              <Text numberOfLines={1} style={{ flex: 1, fontSize: 12.5, color: t.ink2 }}>{staged.name}</Text>
+              <Pressable onPress={() => setStaged(null)} accessibilityLabel="Remove attachment" hitSlop={8}>
+                <Icon name="x" size={13} color={t.ink3} />
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
       <View
         style={{
           flexDirection: "row",
+          alignItems: "flex-end",
           gap: 8,
           paddingHorizontal: 12,
           paddingTop: 8,
@@ -521,6 +575,23 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
           backgroundColor: t.surface,
         }}
       >
+        <Pressable
+          onPress={pickAttachment}
+          disabled={upload.isPending}
+          accessibilityLabel="Attach a file"
+          style={({ pressed }) => ({
+            width: 44, height: 44, borderRadius: 12,
+            backgroundColor: t.surface2, borderWidth: 1, borderColor: t.line,
+            alignItems: "center", justifyContent: "center",
+            opacity: pressed || upload.isPending ? 0.6 : 1,
+          })}
+        >
+          {upload.isPending ? (
+            <ActivityIndicator color={t.ink3} size="small" />
+          ) : (
+            <Icon name="paperclip" size={18} color={t.ink2} />
+          )}
+        </Pressable>
         <TextInput
           value={draft}
           onChangeText={setDraft}
@@ -536,11 +607,11 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
         />
         <Pressable
           onPress={onSend}
-          disabled={send.isPending || !draft.trim()}
+          disabled={send.isPending || (!draft.trim() && !staged)}
           accessibilityLabel="Send"
           style={({ pressed }) => ({
             paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12,
-            backgroundColor: send.isPending || !draft.trim() ? t.chip : t.ink,
+            backgroundColor: send.isPending || (!draft.trim() && !staged) ? t.chip : t.ink,
             alignItems: "center", justifyContent: "center",
             opacity: pressed ? 0.85 : 1,
           })}
@@ -548,7 +619,7 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
           {send.isPending ? (
             <ActivityIndicator color={t.inverse} size="small" />
           ) : (
-            <Icon name="send" size={16} color={!draft.trim() ? t.ink4 : t.inverse} />
+            <Icon name="send" size={16} color={!draft.trim() && !staged ? t.ink4 : t.inverse} />
           )}
         </Pressable>
       </View>
