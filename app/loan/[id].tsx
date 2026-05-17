@@ -28,6 +28,7 @@ import {
 } from "@/hooks/useApi";
 import type { Document } from "@/lib/types";
 import { LoanSimulator } from "@/components/LoanSimulator";
+import { UploadActionSheet, type PickedFile } from "@/components/sheets/UploadActionSheet";
 import { LoanChatThread } from "@/components/loan/LoanChatThread";
 import { PauseBanner } from "@/components/loan/PauseBanner";
 import { KeyboardAware } from "@/components/KeyboardAware";
@@ -442,27 +443,22 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
   const [draft, setDraft] = useState("");
   const [staged, setStaged] = useState<{ document_id: string; name: string } | null>(null);
   const [attachErr, setAttachErr] = useState<string | null>(null);
+  // Bottom sheet that offers Camera / Photos / File.
+  const [showUpload, setShowUpload] = useState(false);
 
-  const pickAttachment = async () => {
-    if (upload.isPending) return;
+  const onPicked = async (file: PickedFile) => {
+    setShowUpload(false);
     try {
-      const picked = await DocumentPicker.getDocumentAsync({
-        type: ["application/pdf", "image/*"],
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
-      if (picked.canceled || picked.assets.length === 0) return;
-      const file = picked.assets[0];
       const init = await upload.mutateAsync({
         loan_id: loanId,
         is_other: true,
         file: {
           uri: file.uri,
-          name: file.name ?? "attachment",
-          mimeType: file.mimeType ?? "application/octet-stream",
+          name: file.name,
+          mimeType: file.mimeType || "application/octet-stream",
         },
       });
-      setStaged({ document_id: init.document_id, name: file.name ?? "attachment" });
+      setStaged({ document_id: init.document_id, name: file.name });
     } catch (e) {
       setAttachErr(e instanceof Error ? e.message : "Couldn't attach the file.");
       setTimeout(() => setAttachErr(null), 4000);
@@ -576,7 +572,7 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
         }}
       >
         <Pressable
-          onPress={pickAttachment}
+          onPress={() => setShowUpload(true)}
           disabled={upload.isPending}
           accessibilityLabel="Attach a file"
           style={({ pressed }) => ({
@@ -623,6 +619,11 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
           )}
         </Pressable>
       </View>
+      <UploadActionSheet
+        visible={showUpload}
+        onClose={() => setShowUpload(false)}
+        onPicked={onPicked}
+      />
     </KeyboardAware>
   );
 }
