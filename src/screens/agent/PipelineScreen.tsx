@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, type Href } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
-import { Card, Pill, StageBadge } from "@/design-system/primitives";
+import { Card, Pill, StageBadge, TappableCard } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
 import { QC_FMT } from "@/design-system/tokens";
 import { TopBar } from "@/components/TopBar";
@@ -118,29 +118,36 @@ export function PipelineScreen() {
   }, [clients, loans, q, sort]);
 
   const clientById = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
-  const activeFiles = useMemo(() => loans.filter((l) => l.stage !== "funded"), [loans]);
-  const fileValue = useMemo(() => activeFiles.reduce((sum, l) => sum + Number(l.amount || 0), 0), [activeFiles]);
-  const relationshipCount = clients.length;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
       <TopBar title="Pipeline" />
 
       <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 12 }}>
-        <Card pad={16} style={{ borderRadius: 16 }} onPress={() => router.push("/agent/performance" as Href)}>
-          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-            <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: t.brandSoft, alignItems: "center", justifyContent: "center" }}>
-              <Icon name="layers" size={19} color={t.brand} />
+        <TappableCard onPress={() => router.push("/agent/loan/new" as Href)} accessibilityLabel="New funding file">
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+            <View
+              style={{
+                width: 46,
+                height: 46,
+                borderRadius: 13,
+                backgroundColor: t.brand,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Icon name="plus" size={22} color="#fff" stroke={2.6} />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ fontSize: 18, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }}>Agent command center</Text>
-              <Text style={{ fontSize: 12, color: t.ink3, marginTop: 3 }} numberOfLines={2}>
-                {activeFiles.length} active funding files · {QC_FMT.short(fileValue)} in motion · {relationshipCount} relationships
+              <Text style={{ fontSize: 17, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }}>
+                New funding file
+              </Text>
+              <Text style={{ fontSize: 12, color: t.ink3, marginTop: 3, lineHeight: 17 }} numberOfLines={2}>
+                Originate a deal, run the intake, hand off to lending when ready.
               </Text>
             </View>
-            <Icon name="chevR" size={16} color={t.ink4} />
           </View>
-        </Card>
+        </TappableCard>
 
         <View style={{ flexDirection: "row", backgroundColor: t.surface2, borderRadius: 12, padding: 4, alignSelf: "stretch", borderWidth: 1, borderColor: t.line }}>
           {(["files", "leads"] as const).map((m) => {
@@ -316,23 +323,6 @@ export function PipelineScreen() {
               );
             })}
       </ScrollView>
-
-      <Pressable
-        onPress={() => router.push("/agent/loan/new" as Href)}
-        accessibilityLabel="New funding file"
-        style={({ pressed }) => ({
-          position: "absolute", right: 18, bottom: 20 + insets.bottom,
-          backgroundColor: t.brand,
-          paddingVertical: 13, paddingHorizontal: 18,
-          borderRadius: 999,
-          flexDirection: "row", alignItems: "center", gap: 6,
-          shadowColor: "#0B1629", shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 4 },
-          opacity: pressed ? 0.85 : 1,
-        })}
-      >
-        <Icon name="plus" size={16} color="#fff" />
-        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>New file</Text>
-      </Pressable>
 
       <ContextMenu
         visible={!!menuTarget}

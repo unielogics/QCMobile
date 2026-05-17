@@ -47,41 +47,7 @@ export function ClientsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
       <TopBar title="Clients" />
 
-      {/* Local sub-header pill — discoverable when the user has scrolled past
-          the hero CTA. Lives inside ClientsScreen only; does NOT touch the
-          shared <TopBar> API (which is consumed by other tabs). */}
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          paddingHorizontal: 16,
-          paddingTop: 4,
-          paddingBottom: 8,
-        }}
-      >
-        <Text style={{ fontSize: 11, fontWeight: "700", color: t.ink3, letterSpacing: 1.4, textTransform: "uppercase" }}>
-          Your book
-        </Text>
-        <Pressable
-          onPress={goNew}
-          accessibilityLabel="Add a new client"
-          style={({ pressed }) => ({
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 5,
-            paddingVertical: 6,
-            paddingHorizontal: 10,
-            borderRadius: 999,
-            backgroundColor: pressed ? t.brand : t.brandSoft,
-          })}
-        >
-          <Icon name="plus" size={12} color={t.brand} />
-          <Text style={{ fontSize: 11.5, fontWeight: "800", color: t.brand, letterSpacing: 0.3 }}>NEW CLIENT</Text>
-        </Pressable>
-      </View>
-
-      <View style={{ paddingHorizontal: 16, gap: 10 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 4, gap: 10 }}>
         {/* Hero CTA — replaces the previous "Client book" summary card. */}
         <TappableCard onPress={goNew} accessibilityLabel="Add a new client">
           <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
