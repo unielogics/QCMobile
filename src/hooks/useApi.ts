@@ -269,6 +269,41 @@ export function useDocuments(loanId: string | null | undefined) {
   });
 }
 
+export interface DocAnalysisResponse {
+  summary: {
+    total: number;
+    reviewed: number;
+    flagged: number;
+    conflicts: number;
+    verdict: "clean" | "needs_review" | "pending";
+    headline: string;
+  };
+  documents: {
+    document_id: string;
+    name: string;
+    status: string;
+    detected_type: string | null;
+    confidence: number | null;
+    ai_notes: string | null;
+    ai_scan_status: string | null;
+    issues: Record<string, unknown>[];
+  }[];
+}
+// Aggregate AI underwriting read. No arg → backend auto-scopes to the
+// signed-in client's docs (CLIENT role); pass a loanId to narrow.
+export function useDocumentsAnalysis(loanId?: string | null) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["documents-analysis", loanId ?? null, key],
+    queryFn: () =>
+      fetcher<DocAnalysisResponse>(
+        loanId ? `/documents/analysis?loan_id=${loanId}` : "/documents/analysis",
+      ),
+    staleTime: 30 * 1000,
+  });
+}
+
 // Upload a document to a specific loan. Two-step:
 //   1. POST /documents/upload-init  → { document_id, upload_url (presigned S3) }
 //   2. PUT the file blob to upload_url with x-amz-server-side-encryption: AES256

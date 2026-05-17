@@ -261,9 +261,15 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
     try {
       switch (action.kind) {
         case "upload_document": {
-          // Deep-link into the vault tab with the doc pre-targeted.
-          // Vault's `useEffect` reads ?fulfill and fires the upload
-          // sheet pre-bound (no property + checklist picker).
+          // In-chat upload: open the picker right here and stage the
+          // file on the composer — the borrower never leaves the
+          // conversation. Only works in a loan-scoped thread (backend
+          // rejects attachments on account-wide threads); fall back to
+          // the vault deep-link otherwise.
+          if (activeThreadId && activeThreadLoanId) {
+            await onAttachPress();
+            return;
+          }
           if (action.document_id) {
             onClose();
             router.push({
@@ -272,8 +278,6 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
             });
             return;
           }
-          // No document_id — just bounce to the vault tab and let
-          // the user pick.
           onClose();
           router.push("/(tabs)/vault");
           return;

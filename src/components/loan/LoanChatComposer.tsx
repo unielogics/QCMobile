@@ -21,11 +21,12 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon, type IconName } from "@/design-system/Icon";
 import type { DealChatMode } from "@/lib/mocks";
-import { useSendLoanChat } from "@/hooks/useApi";
+import { useSendLoanChat, useUploadDocument } from "@/hooks/useApi";
 
 interface Props {
   loanId: string;
@@ -60,17 +61,51 @@ export function LoanChatComposer({ loanId, onSent, viewerRole }: Props) {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const send = useSendLoanChat();
+  const uploadDoc = useUploadDocument();
   const modes = viewerRole === "broker" ? BROKER_MODES : ADMIN_MODES;
   const [mode, setMode] = useState<DealChatMode>(modes[0].mode);
   const [draft, setDraft] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
+  const [staged, setStaged] = useState<{ document_id: string; name: string } | null>(null);
+
+  const pickAttachment = async () => {
+    if (uploadDoc.isPending) return;
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf", "image/*"],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (picked.canceled || picked.assets.length === 0) return;
+      const file = picked.assets[0];
+      const init = await uploadDoc.mutateAsync({
+        loan_id: loanId,
+        is_other: true,
+        file: {
+          uri: file.uri,
+          name: file.name ?? "attachment",
+          mimeType: file.mimeType ?? "application/octet-stream",
+        },
+      });
+      setStaged({ document_id: init.document_id, name: file.name ?? "attachment" });
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Couldn't attach the file.");
+      setTimeout(() => setFlash(null), 4000);
+    }
+  };
 
   const submit = async () => {
     const text = draft.trim();
-    if (!text || send.isPending) return;
+    if ((!text && !staged) || send.isPending) return;
     try {
-      const res = await send.mutateAsync({ loanId, body: text, mode });
+      const res = await send.mutateAsync({
+        loanId,
+        body: text || (staged ? `Uploaded: ${staged.name}` : ""),
+        mode,
+        attachment_document_id: staged?.document_id ?? null,
+      });
       setDraft("");
+      setStaged(null);
       if (res.paused_until) {
         setFlash("AI paused for ~1h while you reply directly.");
         setTimeout(() => setFlash(null), 4000);
@@ -148,7 +183,34 @@ export function LoanChatComposer({ loanId, onSent, viewerRole }: Props) {
         </View>
       ) : null}
 
+      {staged ? (
+        <View style={{ marginHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8, padding: 8, borderRadius: 10, backgroundColor: t.surface2, borderWidth: 1, borderColor: t.line }}>
+          <Icon name="paperclip" size={13} color={t.ink3} />
+          <Text numberOfLines={1} style={{ flex: 1, fontSize: 12.5, color: t.ink2 }}>{staged.name}</Text>
+          <Pressable onPress={() => setStaged(null)} accessibilityLabel="Remove attachment" hitSlop={8}>
+            <Icon name="x" size={13} color={t.ink3} />
+          </Pressable>
+        </View>
+      ) : null}
+
       <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12 }}>
+        <Pressable
+          onPress={pickAttachment}
+          disabled={uploadDoc.isPending}
+          accessibilityLabel="Attach a file"
+          style={({ pressed }) => ({
+            width: 40, height: 40, borderRadius: 20,
+            backgroundColor: t.surface2, borderWidth: 1, borderColor: t.line,
+            alignItems: "center", justifyContent: "center",
+            opacity: pressed || uploadDoc.isPending ? 0.6 : 1,
+          })}
+        >
+          {uploadDoc.isPending ? (
+            <ActivityIndicator size="small" color={t.ink3} />
+          ) : (
+            <Icon name="paperclip" size={18} color={t.ink2} />
+          )}
+        </Pressable>
         <TextInput
           value={draft}
           onChangeText={setDraft}
@@ -180,11 +242,11 @@ export function LoanChatComposer({ loanId, onSent, viewerRole }: Props) {
         />
         <Pressable
           onPress={submit}
-          disabled={!draft.trim() || send.isPending}
+          disabled={(!draft.trim() && !staged) || send.isPending}
           accessibilityLabel="Send"
           style={({ pressed }) => ({
             width: 40, height: 40, borderRadius: 20,
-            backgroundColor: draft.trim() && !send.isPending ? t.brand : t.chip,
+            backgroundColor: (draft.trim() || staged) && !send.isPending ? t.brand : t.chip,
             alignItems: "center", justifyContent: "center",
             opacity: pressed ? 0.85 : 1,
           })}
@@ -192,7 +254,7 @@ export function LoanChatComposer({ loanId, onSent, viewerRole }: Props) {
           {send.isPending ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Icon name="send" size={18} color={draft.trim() && !send.isPending ? "#fff" : t.ink4} />
+            <Icon name="send" size={18} color={(draft.trim() || staged) && !send.isPending ? "#fff" : t.ink4} />
           )}
         </Pressable>
       </View>
