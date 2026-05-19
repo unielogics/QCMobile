@@ -59,6 +59,15 @@ export default function Profile() {
     { label: "Tax Documents", desc: "2025 K-1 ready", icon: "doc" },
   ];
 
+  // Legal — current effective versions of the three documents the user
+  // accepted at sign-up. Tapping opens the full prose with peer
+  // cross-links between Privacy / Terms / Disclosures.
+  const LEGAL_ROWS: AccountRow[] = [
+    { label: "Privacy Policy", desc: "Effective May 19, 2026 · v1.0", icon: "doc", onPress: () => router.push("/privacy") },
+    { label: "Terms & Conditions", desc: "Effective May 19, 2026 · v1.0", icon: "doc", onPress: () => router.push("/terms") },
+    { label: "Funding / AI / Communications Disclosure", desc: "Effective May 19, 2026 · v1.0", icon: "doc", onPress: () => router.push("/disclosures") },
+  ];
+
   const handleSignOut = () => {
     Alert.alert(
       "Sign out?",
@@ -234,6 +243,33 @@ export default function Profile() {
                 borderBottomWidth: i < ACCOUNT_ROWS.length - 1 ? 1 : 0,
                 borderBottomColor: t.line,
                 backgroundColor: pressed && row.onPress ? t.surface2 : "transparent",
+              })}
+            >
+              <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: t.surface2, alignItems: "center", justifyContent: "center" }}>
+                <Icon name={row.icon} size={15} color={t.ink2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: t.ink }}>{row.label}</Text>
+                <Text style={{ fontSize: 11, color: t.ink3, marginTop: 1 }}>{row.desc}</Text>
+              </View>
+              <Icon name="chevR" size={14} color={t.ink4} />
+            </Pressable>
+          ))}
+        </Card>
+
+        {/* Legal — full prose of the documents accepted at sign-up. */}
+        <SectionLabel>Legal</SectionLabel>
+        <Card pad={0} style={{ marginBottom: 18 }}>
+          {LEGAL_ROWS.map((row, i) => (
+            <Pressable
+              key={row.label}
+              onPress={row.onPress}
+              style={({ pressed }) => ({
+                flexDirection: "row", alignItems: "center", gap: 12,
+                paddingVertical: 13, paddingHorizontal: 14,
+                borderBottomWidth: i < LEGAL_ROWS.length - 1 ? 1 : 0,
+                borderBottomColor: t.line,
+                backgroundColor: pressed ? t.surface2 : "transparent",
               })}
             >
               <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: t.surface2, alignItems: "center", justifyContent: "center" }}>
