@@ -18,20 +18,10 @@ import {
   useDealSecretarySummary,
   useCurrentUser,
 } from "@/hooks/useApi";
-import { ClientStage, LoanStage, LoanStageOptions } from "@/lib/enums.generated";
+import { LoanStage, LoanStageOptions } from "@/lib/enums.generated";
 import type { Client, Loan } from "@/lib/types";
 
-type Mode = "files" | "leads";
 type Sort = "stage" | "amount_desc" | "closing_soonest" | "stuck_first";
-
-const RELATIONSHIP_STAGES: { value: ClientStage; label: string }[] = [
-  { value: "lead", label: "New" },
-  { value: "contacted", label: "Nurturing" },
-  { value: "verified", label: "Qualified" },
-  { value: "ready_for_lending", label: "Handoff" },
-  { value: "processing", label: "Funding" },
-  { value: "funded", label: "Closed" },
-];
 
 // Phase 1: include funded as a terminal column to match desktop.
 const DEAL_STAGES: { value: LoanStage; label: string }[] = [
@@ -58,11 +48,10 @@ export function PipelineScreen() {
   const { t } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [mode, setMode] = useState<Mode>("files");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("stage");
   const [reassignTarget, setReassignTarget] = useState<{ clientId: string; clientName: string; currentAgentId: string | null } | null>(null);
-  const [menuTarget, setMenuTarget] = useState<{ kind: "loan" | "client"; id: string; clientId: string; clientName: string; currentAgentId: string | null; address?: string } | null>(null);
+  const [menuTarget, setMenuTarget] = useState<{ id: string; clientId: string; clientName: string; currentAgentId: string | null; address?: string } | null>(null);
   const { data: clients = [] } = useClients("mine");
   const { data: loans = [] } = useLoans("mine");
   const { data: me } = useCurrentUser();
@@ -83,22 +72,6 @@ export function PipelineScreen() {
     if (l && l.deal_id?.toLowerCase().includes(q)) return true;
     return false;
   };
-
-  const leadGroups = useMemo(() => {
-    const activeByClient = new Map<string, number>();
-    for (const l of loans) {
-      if (l.stage !== "funded") activeByClient.set(l.client_id, (activeByClient.get(l.client_id) ?? 0) + 1);
-    }
-    const m = new Map<ClientStage, (Client & { _stage: ClientStage; _activeFiles: number })[]>();
-    for (const s of RELATIONSHIP_STAGES) m.set(s.value, []);
-    for (const c of clients) {
-      if (!matchesQuery(c)) continue;
-      const activeFiles = activeByClient.get(c.id) ?? 0;
-      const stage = inferClientStage(c, activeFiles);
-      if (m.has(stage)) m.get(stage)!.push({ ...c, _stage: stage, _activeFiles: activeFiles });
-    }
-    return m;
-  }, [clients, loans, q]);
 
   const dealGroups = useMemo(() => {
     const clientById = new Map(clients.map((c) => [c.id, c]));
@@ -149,28 +122,6 @@ export function PipelineScreen() {
           </View>
         </TappableCard>
 
-        <View style={{ flexDirection: "row", backgroundColor: t.surface2, borderRadius: 12, padding: 4, alignSelf: "stretch", borderWidth: 1, borderColor: t.line }}>
-          {(["files", "leads"] as const).map((m) => {
-            const active = mode === m;
-            return (
-              <Pressable
-                key={m}
-                onPress={() => setMode(m)}
-                style={{
-                  flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 9,
-                  backgroundColor: active ? t.surface : "transparent",
-                  borderWidth: active ? 1 : 0,
-                  borderColor: active ? t.line : "transparent",
-                }}
-              >
-                <Text style={{ fontSize: 13, fontWeight: "700", color: active ? t.ink : t.ink3 }}>
-                  {m === "files" ? "Funding files" : "Relationships"}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
         {/* Search */}
         <View
           style={{
@@ -184,7 +135,7 @@ export function PipelineScreen() {
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder={mode === "files" ? "Search address, deal id, client…" : "Search clients…"}
+            placeholder="Search address, deal id, client…"
             placeholderTextColor={t.ink4}
             style={{ flex: 1, color: t.ink, fontSize: 13, padding: 0 }}
           />
@@ -195,40 +146,35 @@ export function PipelineScreen() {
           ) : null}
         </View>
 
-        {mode === "files" ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-            {SORTS.map((s) => {
-              const active = sort === s.value;
-              return (
-                <Pressable
-                  key={s.value}
-                  onPress={() => setSort(s.value)}
-                  style={{
-                    paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999,
-                    borderWidth: 1, borderColor: active ? t.brand : t.line,
-                    backgroundColor: active ? t.brandSoft : "transparent",
-                  }}
-                >
-                  <Text style={{ fontSize: 11.5, fontWeight: "700", color: active ? t.brand : t.ink2 }}>{s.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        ) : null}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+          {SORTS.map((s) => {
+            const active = sort === s.value;
+            return (
+              <Pressable
+                key={s.value}
+                onPress={() => setSort(s.value)}
+                style={{
+                  paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999,
+                  borderWidth: 1, borderColor: active ? t.brand : t.line,
+                  backgroundColor: active ? t.brandSoft : "transparent",
+                }}
+              >
+                <Text style={{ fontSize: 11.5, fontWeight: "700", color: active ? t.brand : t.ink2 }}>{s.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       </View>
 
-      {mode === "files" ? (
-        <View style={{ marginTop: 12 }}>
-          <FundingMetricsRow />
-        </View>
-      ) : null}
+      <View style={{ marginTop: 12 }}>
+        <FundingMetricsRow />
+      </View>
 
       <ScrollView
         contentContainerStyle={{ padding: 16, paddingTop: 12, gap: 18, paddingBottom: 104 + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
-        {mode === "files"
-          ? DEAL_STAGES.map((s) => {
+        {DEAL_STAGES.map((s) => {
               const items = dealGroups.get(s.value) ?? [];
               return (
                 <View key={s.value} style={{ gap: 8 }}>
@@ -250,7 +196,6 @@ export function PipelineScreen() {
                         onLongPress={
                           isSuperAdmin && c
                             ? () => setMenuTarget({
-                                kind: "loan",
                                 id: l.id,
                                 clientId: l.client_id,
                                 clientName: c.name,
@@ -262,63 +207,6 @@ export function PipelineScreen() {
                       />
                     );
                   })}
-                </View>
-              );
-            })
-          : RELATIONSHIP_STAGES.map((s) => {
-              const items = leadGroups.get(s.value) ?? [];
-              return (
-                <View key={s.value} style={{ gap: 8 }}>
-                  <StageHeader label={s.label} count={items.length} />
-                  {items.length === 0 ? (
-                    <EmptyStage text="No relationships in this stage." />
-                  ) : items.map((c) => (
-                    <Pressable
-                      key={c.id}
-                      onPress={() => router.push(`/agent/client/${c.id}` as Href)}
-                      onLongPress={
-                        isSuperAdmin
-                          ? () => setMenuTarget({
-                              kind: "client",
-                              id: c.id,
-                              clientId: c.id,
-                              clientName: c.name,
-                              currentAgentId: c.current_agent_id ?? c.broker_id ?? null,
-                            })
-                          : undefined
-                      }
-                      delayLongPress={350}
-                      style={({ pressed }) => ({
-                        backgroundColor: t.surface, borderColor: t.line, borderWidth: 1, borderRadius: 14, padding: 14,
-                        opacity: pressed ? 0.85 : 1,
-                      })}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-                        <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: c.client_type === "seller" ? t.warnBg : t.petrolSoft, alignItems: "center", justifyContent: "center" }}>
-                          <Icon name={c.client_type === "seller" ? "building" : "user"} size={16} color={c.client_type === "seller" ? t.warn : t.petrol} />
-                        </View>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                            <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink, flex: 1 }} numberOfLines={1}>{c.name}</Text>
-                            <Pill bg={c.client_type === "seller" ? t.warnBg : t.brandSoft} color={c.client_type === "seller" ? t.warn : t.brand}>
-                              {c.client_type === "seller" ? "Seller" : "Buyer"}
-                            </Pill>
-                          </View>
-                          {c.city ? <Text style={{ fontSize: 12, color: t.ink3, marginTop: 2 }} numberOfLines={1}>{c.city}</Text> : null}
-                          <Text style={{ fontSize: 12, color: t.ink2, marginTop: 9, lineHeight: 17 }} numberOfLines={2}>
-                            {relationshipNextMove(c, c._stage)}
-                          </Text>
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                            <Pill bg={t.chip} color={t.ink2}>FICO {c.fico ?? "new"}</Pill>
-                            <Pill bg={c._activeFiles ? t.brandSoft : t.surface2} color={c._activeFiles ? t.brand : t.ink3}>
-                              {c._activeFiles ? `${c._activeFiles} funding file${c._activeFiles === 1 ? "" : "s"}` : "Agent file"}
-                            </Pill>
-                          </View>
-                        </View>
-                        <Icon name="chevR" size={14} color={t.ink4} />
-                      </View>
-                    </Pressable>
-                  ))}
                 </View>
               );
             })}
@@ -346,7 +234,7 @@ export function PipelineScreen() {
 }
 
 function menuTargetItems(
-  target: { kind: "loan" | "client"; clientId: string; clientName: string; currentAgentId: string | null } | null,
+  target: { clientId: string; clientName: string; currentAgentId: string | null } | null,
   setReassignTarget: (v: { clientId: string; clientName: string; currentAgentId: string | null } | null) => void,
 ): ContextMenuItem[] {
   if (!target) return [];
@@ -384,31 +272,6 @@ function healthRank(h: Loan["deal_health"]): number {
   if (h === "at_risk") return 2;
   if (h === "on_track") return 1;
   return 0;
-}
-
-function inferClientStage(client: Client, activeFiles: number): ClientStage {
-  if (client.stage) return client.stage;
-  if (client.funded_count > 0) return "funded";
-  if (activeFiles > 0) return "processing";
-  return "lead";
-}
-
-function relationshipNextMove(client: Client, stage: ClientStage) {
-  const isSeller = client.client_type === "seller";
-  if (isSeller) {
-    if (stage === "lead") return "Confirm sell-side timeline, target net, and property facts.";
-    if (stage === "contacted") return "Collect payoff, listing goals, and seller docs.";
-    if (stage === "verified") return "Package seller context before funding handoff.";
-    if (stage === "ready_for_lending") return "Track funding intake and keep seller updated.";
-    if (stage === "processing") return "Coordinate offer, conditions, and close logistics.";
-    return "Log outcome and schedule post-close follow-up.";
-  }
-  if (stage === "lead") return "Confirm buy box, budget, and purchase timeline.";
-  if (stage === "contacted") return "Send intake, soft-pull consent, and document request.";
-  if (stage === "verified") return "Review readiness before funding handoff.";
-  if (stage === "ready_for_lending") return "Monitor funding criteria review.";
-  if (stage === "processing") return "Help borrower clear conditions and deadlines.";
-  return "Capture next purchase goal and referral opportunity.";
 }
 
 function StageHeader({ label, count }: { label: string; count: number }) {

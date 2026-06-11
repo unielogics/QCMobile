@@ -69,7 +69,7 @@ export default function AgentClientRoute() {
 
   const onMessage = async () => {
     // Loan-specific conversation lives in the loan workspace chat
-    // (loan_chat_messages) — the same surface the client sees + the AI
+    // (loan_chat_messages) — the same surface the client sees + Elara
     // writes into. Sending here via the broker's per-user AI thread
     // would leave the client unaware, so we route to the loan page's
     // Messages tab whenever a loan exists. With no loan yet, fall back
@@ -116,13 +116,13 @@ export default function AgentClientRoute() {
   // spawns the lending AI thread with the first memory-aware message,
   // and drops an AITask in the funding queue. Two-step UX:
   //
-  //   1. Confirm Alert — "Ready to send X to lending? The AI will…"
+  //   1. Confirm Alert — "Ready to send X to lending? Elara will…"
   //   2. After fire — success Alert with the handoff summary + the
-  //      first question the Lending AI asked.
+  //      first question the Lending Elara asked.
   const onRequestPrequal = () => {
     Alert.alert(
       `Ready to send ${client.name} to lending?`,
-      "The AI will:\n\n" +
+      "Elara will:\n\n" +
         "• Summarize the realtor conversation\n" +
         "• Carry over relevant facts and files\n" +
         "• Identify missing lending items\n" +
@@ -145,7 +145,7 @@ export default function AgentClientRoute() {
                   ? `\n\nLending AI will collect:\n• ${result.missing_lending_items.join("\n• ")}`
                   : "";
               const firstQ = result.first_lending_question
-                ? `\n\nFirst question the AI asked:\n${result.first_lending_question}`
+                ? `\n\nFirst question Elara asked:\n${result.first_lending_question}`
                 : "";
               Alert.alert(
                 `${client.name} moved to Lending Intake`,
@@ -287,7 +287,7 @@ export default function AgentClientRoute() {
         {/* Active AI Plan card (alembic 0032). Trumps the legacy
             missing_facts walk; renders the playbook-resolved active
             list for THIS client + lets the agent set per-client
-            custom instructions for the AI. */}
+            custom instructions for Elara. */}
         <ClientAIPlanCard clientId={client.id} loanId={null} />
 
         <AgentRelationshipWorkspace
@@ -379,9 +379,21 @@ export default function AgentClientRoute() {
             wide
           />
         ) : null}
-        <View style={{ flexDirection: "row", gap: 8, marginTop: primaryAction ? 10 : 0 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: primaryAction ? 10 : 0 }}>
           <ActionButton label="Call" icon="bolt" onPress={onCall} disabled={!client.phone} compact />
           <ActionButton label="Message" icon="chat" onPress={onMessage} loading={busy === "message"} compact />
+          <ActionButton
+            label="Analyze"
+            icon="calc"
+            onPress={() => router.push({ pathname: "/agent/deal-analyzer", params: { clientId: client.id } } as Href)}
+            compact
+          />
+          <ActionButton
+            label="Simulate"
+            icon="sliders"
+            onPress={() => router.push({ pathname: "/agent/simulate", params: { clientId: client.id } } as Href)}
+            compact
+          />
           {client.stage === "lead" ? (
             <ActionButton label="Contacted" icon="check" onPress={onMarkContacted} loading={busy === "contacted"} compact />
           ) : null}
@@ -501,7 +513,7 @@ function ActionButton({
   label, icon, onPress, primary, loading, disabled, wide, compact,
 }: {
   label: string;
-  icon: "bolt" | "chat" | "check" | "vault";
+  icon: "bolt" | "chat" | "check" | "vault" | "calc" | "sliders";
   onPress: () => void;
   primary?: boolean;
   loading?: boolean;
@@ -519,7 +531,7 @@ function ActionButton({
       disabled={loading || disabled}
       style={({ pressed }) => ({
         flex: wide ? undefined : 1,
-        minWidth: compact ? 0 : undefined,
+        minWidth: compact ? 96 : undefined,
         paddingVertical: wide ? 13 : 10,
         paddingHorizontal: compact ? 8 : 12,
         borderRadius: wide ? 12 : 10,

@@ -1,11 +1,11 @@
 // 4-mode composer for the agent-side of the loan chat surface.
 //
 // Modes (for BROKER role):
-//   - Live Chat    : message is client-visible AND pauses the AI for 60min.
+//   - Live Chat    : message is client-visible AND pauses Elara for 60min.
 //                    Marquee mode for human takeover.
-//   - Ask AI       : broker-private question, AI answers without notifying client.
-//   - Suggest      : drafts a reply that the AI sends after broker approval.
-//   - Instruct     : instruction to the AI for future replies on this thread.
+//   - Ask Elara       : broker-private question, AI answers without notifying client.
+//   - Suggest      : drafts a reply that Elara sends after broker approval.
+//   - Instruct     : instruction to Elara for future replies on this thread.
 //
 // Phase 4: matches desktop's DealChatInput exactly so the loan chat
 // behaves identically across surfaces. Live Chat is leftmost and
@@ -33,7 +33,7 @@ interface Props {
   onSent?: (mode: DealChatMode, paused_until: string | null) => void;
   // Drives mode chip visibility. BROKER sees the 4-mode set;
   // SUPER_ADMIN/LOAN_EXEC see Chat (= classic super-admin takeover)
-  // + Instruct + Ask AI.
+  // + Instruct + Ask Elara.
   viewerRole: "broker" | "super_admin" | "loan_exec";
 }
 
@@ -45,16 +45,16 @@ interface ModeChip {
 }
 
 const BROKER_MODES: ModeChip[] = [
-  { mode: "live_chat",         label: "Live Chat",     hint: "Reply directly · pauses AI for 1h", icon: "send" },
-  { mode: "broker_question",   label: "Ask AI",        hint: "Broker-private question to the AI", icon: "spark" },
-  { mode: "broker_suggestion", label: "Suggest",       hint: "Draft a reply for the AI to send",  icon: "doc" },
-  { mode: "instruct",          label: "Instruct AI",   hint: "Permanent rule for this thread",    icon: "shield" },
+  { mode: "live_chat",         label: "Live Chat",     hint: "Reply directly · pauses Elara for 1h", icon: "send" },
+  { mode: "broker_question",   label: "Ask Elara",        hint: "Broker-private question to Elara", icon: "spark" },
+  { mode: "broker_suggestion", label: "Suggest",       hint: "Draft a reply for Elara to send",  icon: "doc" },
+  { mode: "instruct",          label: "Instruct Elara",   hint: "Permanent rule for this thread",    icon: "shield" },
 ];
 
 const ADMIN_MODES: ModeChip[] = [
-  { mode: "chat",     label: "Chat",         hint: "Operator takeover · pauses AI for 1h", icon: "send" },
-  { mode: "instruct", label: "Instruct AI",  hint: "Permanent rule for this thread",       icon: "shield" },
-  { mode: "broker_question", label: "Ask AI", hint: "Quick question to the AI",            icon: "spark" },
+  { mode: "chat",     label: "Chat",         hint: "Operator takeover · pauses Elara for 1h", icon: "send" },
+  { mode: "instruct", label: "Instruct Elara",  hint: "Permanent rule for this thread",       icon: "shield" },
+  { mode: "broker_question", label: "Ask Elara", hint: "Quick question to Elara",            icon: "spark" },
 ];
 
 export function LoanChatComposer({ loanId, onSent, viewerRole }: Props) {
@@ -107,7 +107,7 @@ export function LoanChatComposer({ loanId, onSent, viewerRole }: Props) {
       setDraft("");
       setStaged(null);
       if (res.paused_until) {
-        setFlash("AI paused for ~1h while you reply directly.");
+        setFlash("Elara paused for ~1h while you reply directly.");
         setTimeout(() => setFlash(null), 4000);
       }
       onSent?.(mode, res.paused_until);
@@ -218,10 +218,10 @@ export function LoanChatComposer({ loanId, onSent, viewerRole }: Props) {
             mode === "live_chat" || mode === "chat"
               ? "Type a message to the client…"
               : mode === "broker_question"
-                ? "Ask the AI…"
+                ? "Ask Elara…"
                 : mode === "broker_suggestion"
-                  ? "Draft a reply for the AI to send…"
-                  : "Tell the AI how to handle this thread going forward…"
+                  ? "Draft a reply for Elara to send…"
+                  : "Tell Elara how to handle this thread going forward…"
           }
           placeholderTextColor={t.ink4}
           multiline

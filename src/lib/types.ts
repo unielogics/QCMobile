@@ -584,6 +584,8 @@ export interface PrequalRequest {
   id: string;
   loan_id: string | null;
   requester_id: string;
+  client_id?: string | null;
+  client_name?: string | null;
   target_property_address: string;
   // For F&F: purchase_price is the BRV. For DSCR / Bridge it's the
   // property purchase / value.
@@ -614,6 +616,7 @@ export interface PrequalRequest {
   reviewed_at: string | null;
   created_at: string;
   updated_at: string;
+  source_analysis_run_id?: string | null;
 }
 
 export interface PrequalRequestCreate {
@@ -629,8 +632,148 @@ export interface PrequalRequestCreate {
   sow_items?: PrequalSowLineItem[] | null;
 }
 
+export interface AdminPrequalCreate extends PrequalRequestCreate {
+  client_id: string;
+  manual_credit_override?: {
+    fico: number;
+    property_count: number;
+    has_year_of_ownership: boolean;
+  } | null;
+}
+
 export interface PrequalSellerOutcome {
   note?: string | null;
+}
+
+// ── Analysis runs + property intelligence ─────────────────────────────
+// Mirrors qcdesktop/src/lib/types.ts and backend app/schemas/analysis.py.
+
+export type AnalysisProduct = "dscr_purchase" | "dscr_refi" | "fix_flip";
+export type AnalysisSource = "deal_analyzer" | "simulator" | "loan_recalc";
+
+export interface AddressParts {
+  street?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  full?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
+export interface AddressSuggestion {
+  place_id: string;
+  text: string;
+  secondary_text: string | null;
+}
+
+export interface AddressResolveResponse {
+  address: AddressParts;
+  google_place: Record<string, unknown> | null;
+}
+
+export interface PropertyIntelligenceSnapshot {
+  id: string;
+  created_by_id: string | null;
+  client_id: string | null;
+  deal_id: string | null;
+  loan_id: string | null;
+  normalized_address: string;
+  address_hash: string;
+  source_status: Record<string, unknown> | null;
+  address: AddressParts & Record<string, unknown>;
+  google_place: Record<string, unknown> | null;
+  rentcast_property: Record<string, unknown> | null;
+  rentcast_value: Record<string, unknown> | null;
+  rentcast_rent: Record<string, unknown> | null;
+  rentcast_market: Record<string, unknown> | null;
+  fema_flood: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PropertyIntelligenceLookupRequest {
+  address: AddressParts;
+  client_id?: string | null;
+  deal_id?: string | null;
+  loan_id?: string | null;
+  property_type?: string | null;
+  bedrooms?: number | null;
+  bathrooms?: number | null;
+  square_footage?: number | null;
+  force_refresh?: boolean;
+}
+
+export interface AnalysisRun {
+  id: string;
+  created_by_id: string | null;
+  client_id: string | null;
+  deal_id: string | null;
+  loan_id: string | null;
+  property_snapshot_id: string | null;
+  prequal_request_id: string | null;
+  product: AnalysisProduct;
+  tool_source: AnalysisSource;
+  status: string;
+  title: string;
+  target_property_address: string | null;
+  inputs: Record<string, unknown>;
+  calculator_output: Record<string, unknown> | null;
+  ai_report: Record<string, unknown> | null;
+  sanitized_client_report: Record<string, unknown> | null;
+  report_version: number;
+  shared_at: string | null;
+  shared_by_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AnalysisRunToolSourceFilter = AnalysisSource | "deal_analyzer" | "simulator" | "loan_recalc";
+
+export interface AnalysisRunCreate {
+  product: AnalysisProduct;
+  tool_source?: AnalysisSource;
+  title?: string | null;
+  client_id?: string | null;
+  deal_id?: string | null;
+  loan_id?: string | null;
+  property_snapshot_id?: string | null;
+  target_property_address?: string | null;
+  inputs?: Record<string, unknown>;
+  calculator_output?: Record<string, unknown> | null;
+}
+
+export interface AnalysisRunUpdate {
+  title?: string | null;
+  client_id?: string | null;
+  deal_id?: string | null;
+  loan_id?: string | null;
+  property_snapshot_id?: string | null;
+  target_property_address?: string | null;
+  inputs?: Record<string, unknown> | null;
+  calculator_output?: Record<string, unknown> | null;
+  status?: string | null;
+}
+
+export interface AnalysisRunPrequalRequest {
+  expected_closing_date?: string | null;
+  borrower_entity?: string | null;
+  notes?: string | null;
+  manual_credit_override?: {
+    fico: number;
+    property_count: number;
+    has_year_of_ownership: boolean;
+  } | null;
+}
+
+export interface AnalysisRunPrequalResponse {
+  analysis_run: AnalysisRun;
+  prequal_request: PrequalRequest;
+}
+
+export interface ShareAnalysisResponse {
+  analysis_run: AnalysisRun;
+  shared: boolean;
 }
 
 // FRED-driven market rates (mirrors qcdesktop)

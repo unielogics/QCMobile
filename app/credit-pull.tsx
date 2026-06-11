@@ -3,7 +3,11 @@
 //   review   → read-only summary with Edit button
 //   consent  → FCRA legal text + "I Authorize" button
 //   pulling  → loading state while bureau call runs
-//   done     → FICO + expiry shown to borrower
+//   done     → credit tier + unlocked loan programs shown to borrower.
+//              The 3-digit FICO is intentionally NOT shown — compliance
+//              keeps the raw score internal-only. We surface the tier band
+//              ("Strong Credit" / "Mid Credit" / "Below Threshold") plus
+//              the loan programs the pull unlocked instead.
 //
 // Pre-fill sources: /auth/me (name) + /clients/me (address, city). Phone
 // and email aren't part of iSoftPull's required fields, so we skip them
@@ -29,6 +33,7 @@ import { Card, Pill, QButton, SectionLabel } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
 import { useCreditSummary, useCurrentUser, useMyClient, useMyCredit, useStartCreditPull } from "@/hooks/useApi";
 import { ApiError } from "@/lib/api";
+import type { CreditSummaryProduct } from "@/lib/types";
 
 type Stage = "form" | "review" | "consent" | "pulling" | "done";
 
@@ -693,6 +698,56 @@ function ConsentStage({
   );
 }
 
+// Borrower-facing loan-program families. Maps the rate-sheet loan_type
+// (from /credit/pulls/{id}/summary available_products) to a friendly
+// label + icon + the leverage unit that product is quoted in.
+const PROGRAM_FAMILY: Record<string, { label: string; icon: string; unit: "LTV" | "LTC" }> = {
+  fix_and_flip:  { label: "Fix & Flip",    icon: "hammer",    unit: "LTC" },
+  ground_up:     { label: "Ground Up",     icon: "building2", unit: "LTC" },
+  dscr:          { label: "DSCR Rental",   icon: "key",       unit: "LTV" },
+  bridge:        { label: "Bridge",        icon: "bolt",      unit: "LTV" },
+  cash_out_refi: { label: "Cash-Out Refi", icon: "refresh",   unit: "LTV" },
+  portfolio:     { label: "Portfolio",     icon: "layers",    unit: "LTV" },
+};
+
+// FICO → tier band. Mirrors fico_tier() in
+// qcbackend/app/services/credit_summary.py. Used only as a fallback when
+// the summary endpoint hasn't returned a tier yet — the number itself is
+// never rendered.
+function ficoTier(fico: number | null | undefined): string {
+  if (fico == null || fico < 620) return "blocked";
+  if (fico < 680) return "warn";
+  if (fico < 720) return "basic";
+  return "pro";
+}
+
+interface ProgramFamily {
+  key: string;
+  label: string;
+  icon: string;
+  unit: "LTV" | "LTC";
+  maxLtv: number | null;
+}
+
+// Collapse the SKU-level available_products into one chip per program
+// family, keeping the highest leverage offered within each family.
+function groupPrograms(products: CreditSummaryProduct[] | undefined): ProgramFamily[] {
+  const map = new Map<string, ProgramFamily>();
+  for (const p of products ?? []) {
+    const fam = PROGRAM_FAMILY[p.loan_type];
+    if (!fam) continue;
+    const ltv = typeof p.max_ltv === "number" ? p.max_ltv : null;
+    const prev = map.get(p.loan_type);
+    if (!prev) {
+      map.set(p.loan_type, { key: p.loan_type, label: fam.label, icon: fam.icon, unit: fam.unit, maxLtv: ltv });
+    } else if (ltv != null && (prev.maxLtv == null || ltv > prev.maxLtv)) {
+      prev.maxLtv = ltv;
+    }
+  }
+  const order = ["fix_and_flip", "dscr", "ground_up", "bridge", "cash_out_refi", "portfolio"];
+  return [...map.values()].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+}
+
 function DoneStage({
   data,
   onClose,
@@ -701,6 +756,11 @@ function DoneStage({
   onClose: () => void;
 }) {
   const { t } = useTheme();
+  // Pull the borrower-safe summary: tier band + the loan programs the
+  // pull unlocked. Drives everything on this screen so the raw FICO
+  // never has to be rendered.
+  const { data: summary, isLoading } = useCreditSummary(data?.id);
+
   // The bureau can return 200-OK with a null FICO when the file is too
   // thin or stale to score. Surface that explicitly so the borrower
   // doesn't think the pull is still loading or that it failed silently.
@@ -708,7 +768,7 @@ function DoneStage({
     return (
       <Card pad={24}>
         <Text style={{ color: t.warn, fontSize: 14, fontWeight: "700", textAlign: "center" }}>
-          No score available
+          Couldn't verify
         </Text>
         <Text
           style={{
@@ -719,7 +779,7 @@ function DoneStage({
             marginTop: 12,
           }}
         >
-          The bureau didn't return a usable score
+          The bureau didn't return a usable file
         </Text>
         <Text style={{ color: t.ink2, fontSize: 13, textAlign: "center", marginTop: 10, lineHeight: 18 }}>
           This usually means a thin or stale credit file. Re-running on the same
@@ -732,85 +792,143 @@ function DoneStage({
       </Card>
     );
   }
+
+  const validThrough = data?.expires_at ? new Date(data.expires_at).toLocaleDateString() : "—";
+  const tier = summary?.tier ?? ficoTier(data?.fico);
+  const blocked = tier === "blocked";
+  const families = groupPrograms(summary?.available_products);
+
+  const tierMeta = blocked
+    ? { label: "Below Threshold", color: t.danger, bg: t.dangerBg, icon: "lock" }
+    : tier === "pro"
+      ? { label: "Strong Credit", color: t.profit, bg: t.profitBg, icon: "bolt" }
+      : { label: "Mid Credit", color: t.warn, bg: t.warnBg, icon: "shieldChk" };
+
   return (
-    <Card pad={24}>
-      <Text style={{ color: t.profit, fontSize: 14, fontWeight: "700", textAlign: "center" }}>
-        Verified
-      </Text>
-      <Text
-        style={{
-          color: t.ink,
-          fontSize: 36,
-          fontWeight: "800",
-          textAlign: "center",
-          marginTop: 8,
-        }}
-      >
-        {data?.fico ?? "—"}
-      </Text>
-      <Text style={{ color: t.ink3, fontSize: 12, textAlign: "center", marginTop: 4 }}>
-        Valid through {data?.expires_at ? new Date(data.expires_at).toLocaleDateString() : "—"}
-      </Text>
-      {data?.id ? <CreditBriefing pullId={data.id} /> : null}
-      <Text style={{ color: t.ink3, fontSize: 12, textAlign: "center", marginTop: 14, lineHeight: 17 }}>
-        Soft pull — no impact on your credit. We'll use this score to surface accurate rates and LTV
-        tiers across the simulator.
-      </Text>
-      <View style={{ marginTop: 16 }}>
-        <QButton label="Done" onPress={onClose} />
+    <Card pad={22}>
+      {/* Eyebrow — identity/credit verified (no score). */}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 }}>
+        <Icon name="shieldChk" size={13} stroke={2.4} color={t.profit} />
+        <Text style={{ color: t.profit, fontSize: 11, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" }}>
+          Credit Verified
+        </Text>
       </View>
-    </Card>
-  );
-}
 
-// Brief "what's good vs what's a concern" summary for the done stage.
-// Mirrors qcdesktop CreditBriefing — label-only, max 3 of each kind.
-function CreditBriefing({ pullId }: { pullId: string }) {
-  const { t } = useTheme();
-  const { data: summary, isLoading } = useCreditSummary(pullId);
+      {/* Tier badge — replaces the 3-digit score. */}
+      <View style={{ alignItems: "center", marginTop: 10 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            paddingVertical: 9,
+            paddingHorizontal: 18,
+            borderRadius: 999,
+            backgroundColor: tierMeta.bg,
+            borderWidth: 1,
+            borderColor: `${tierMeta.color}52`,
+          }}
+        >
+          <Icon name={tierMeta.icon} size={18} stroke={2.3} color={tierMeta.color} />
+          <Text style={{ color: tierMeta.color, fontSize: 18, fontWeight: "800", letterSpacing: 0.2 }}>
+            {tierMeta.label}
+          </Text>
+        </View>
+      </View>
 
-  if (isLoading) {
-    return (
-      <Text style={{ color: t.ink3, fontSize: 12, textAlign: "center", marginTop: 14 }}>
-        Loading briefing…
+      <Text style={{ color: t.ink3, fontSize: 12, textAlign: "center", marginTop: 8 }}>
+        Verified · valid through {validThrough}
       </Text>
-    );
-  }
-  if (!summary) return null;
 
-  const positives = summary.bullets.filter((b) => b.kind === "positive").slice(0, 3);
-  const warns = summary.bullets.filter((b) => b.kind === "warn").slice(0, 3);
-  if (positives.length === 0 && warns.length === 0) return null;
+      {isLoading && !summary ? (
+        <Text style={{ color: t.ink3, fontSize: 12, textAlign: "center", marginTop: 16 }}>
+          Reading your results…
+        </Text>
+      ) : blocked ? (
+        <>
+          <Text style={{ color: t.ink2, fontSize: 13, textAlign: "center", marginTop: 16, lineHeight: 19 }}>
+            Your verified credit profile doesn't currently meet the minimum for our loan programs.
+            Let's build a path forward — our AI and loan team can help you structure your next steps.
+          </Text>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              marginTop: 16,
+              paddingVertical: 11,
+              borderRadius: 11,
+              backgroundColor: t.surface2,
+              borderWidth: 1,
+              borderColor: t.line,
+            }}
+          >
+            <Icon name="lock" size={14} color={t.ink3} />
+            <Text style={{ color: t.ink3, fontSize: 12, fontWeight: "600" }}>No programs available yet</Text>
+          </View>
+          <View style={{ marginTop: 16 }}>
+            <QButton label="Start guided workflow" variant="danger" onPress={onClose} />
+          </View>
+        </>
+      ) : families.length > 0 ? (
+        <>
+          <Text style={{ color: t.ink2, fontSize: 12.5, textAlign: "center", marginTop: 14, lineHeight: 18 }}>
+            <Text style={{ color: t.ink, fontWeight: "800" }}>Congratulations! </Text>
+            Based on your verified credit, you've unlocked these loan programs:
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -4, marginTop: 14 }}>
+            {families.map((f) => (
+              <View key={f.key} style={{ width: "50%", padding: 4 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 9,
+                    backgroundColor: t.surface2,
+                    borderWidth: 1,
+                    borderColor: t.line,
+                    borderRadius: 12,
+                    padding: 10,
+                  }}
+                >
+                  <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: t.brandSoft, alignItems: "center", justifyContent: "center" }}>
+                    <Icon name={f.icon} size={16} color={t.brand} />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: t.ink }}>{f.label}</Text>
+                    {f.maxLtv != null ? (
+                      <Text style={{ fontSize: 9.5, color: t.ink3, marginTop: 1 }}>
+                        up to {Math.round(f.maxLtv * 100)}% {f.unit}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              </View>
+            ))}
+          </View>
+          <View style={{ marginTop: 16 }}>
+            <QButton label="Explore my programs" onPress={onClose} />
+          </View>
+        </>
+      ) : (
+        // Verified and eligible, but no specific SKU list came back (rare —
+        // e.g. the parsed report wasn't available). Keep it positive and
+        // route them onward rather than implying a decline.
+        <>
+          <Text style={{ color: t.ink2, fontSize: 13, textAlign: "center", marginTop: 16, lineHeight: 19 }}>
+            You're verified and eligible to explore our loan programs.
+          </Text>
+          <View style={{ marginTop: 16 }}>
+            <QButton label="Explore my programs" onPress={onClose} />
+          </View>
+        </>
+      )}
 
-  return (
-    <View style={{ marginTop: 16, gap: 12 }}>
-      {positives.length > 0 && (
-        <View>
-          <Text style={{ fontSize: 10.5, fontWeight: "700", color: t.profit, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>
-            What's good
-          </Text>
-          {positives.map((b, i) => (
-            <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.profit, marginTop: 6 }} />
-              <Text style={{ flex: 1, fontSize: 13, color: t.ink2, lineHeight: 18 }}>{b.label}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-      {warns.length > 0 && (
-        <View>
-          <Text style={{ fontSize: 10.5, fontWeight: "700", color: t.warn, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>
-            Things to watch
-          </Text>
-          {warns.map((b, i) => (
-            <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.warn, marginTop: 6 }} />
-              <Text style={{ flex: 1, fontSize: 13, color: t.ink2, lineHeight: 18 }}>{b.label}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-    </View>
+      <Text style={{ color: t.ink4, fontSize: 10.5, textAlign: "center", marginTop: 14, lineHeight: 15 }}>
+        Soft pull — no impact on your credit. Eligibility is based on your verified credit profile.
+      </Text>
+    </Card>
   );
 }
 

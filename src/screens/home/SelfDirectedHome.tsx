@@ -23,7 +23,9 @@ import { Icon } from "@/design-system/Icon";
 import { QC_FMT } from "@/design-system/tokens";
 import { FredChart } from "@/components/FredChart";
 import { RateDetailModal } from "@/components/RateDetailModal";
+import { SharedAnalysisReports } from "@/components/SharedAnalysisReports";
 import {
+  useAnalysisRuns,
   useCalendar,
   useCurrentUser,
   useDashboardReport,
@@ -89,7 +91,8 @@ export function SelfDirectedHome() {
   const { data: report } = useDashboardReport();
   const { data: events = [] } = useCalendar();
   const { data: credit } = useMyCredit();
-  // The dashboard FAB now opens the AI Intelligent Underwriter chat
+  const { data: sharedReports = [] } = useAnalysisRuns({ shared: true });
+  // The dashboard FAB now opens Elara chat
   // instead of the new-loan sheet. Per-loan AI chats stay accessible
   // from each loan's detail screen; the dashboard surface is the
   // account-wide entry point. New-loan creation moves to the
@@ -202,6 +205,8 @@ export function SelfDirectedHome() {
             }}
           />
         ) : null}
+
+        {isClient ? <SharedAnalysisReports reports={sharedReports} /> : null}
 
         {/* Market Rates — operators see them right under Pro Terms. For
             CLIENTs, market rates come AFTER their loans + portfolio

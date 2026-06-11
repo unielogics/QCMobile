@@ -25,14 +25,27 @@ import type {
   DashboardReport,
   FredSeriesSummary,
   PrequalRequest,
+  AdminPrequalCreate,
   PrequalRequestCreate,
   PrequalSellerOutcome,
   AITask,
+  AddressResolveResponse,
+  AddressSuggestion,
+  AnalysisProduct,
+  AnalysisSource,
+  AnalysisRun,
+  AnalysisRunCreate,
+  AnalysisRunPrequalRequest,
+  AnalysisRunPrequalResponse,
+  AnalysisRunUpdate,
   BrokerSettings,
   EngagementSignal,
   FunnelMetrics,
   ListScope,
   NextAction,
+  PropertyIntelligenceLookupRequest,
+  PropertyIntelligenceSnapshot,
+  ShareAnalysisResponse,
 } from "@/lib/types";
 import type { ClientStage, LoanPurpose } from "@/lib/enums.generated";
 
@@ -157,6 +170,17 @@ export function useCreditCurrent() {
     enabled: isLoaded,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useCurrentCredit(clientId: string | null | undefined) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["credit", clientId ?? null, key],
+    queryFn: () => fetcher<CreditPullStatus | null>(`/credit/current?client_id=${encodeURIComponent(clientId!)}`),
+    enabled: !!clientId,
     staleTime: 30 * 1000,
   });
 }
@@ -743,6 +767,150 @@ export function useFreeCalc() {
   });
 }
 
+export function useAddressAutocomplete(input: string, sessionToken?: string | null) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  const q = input.trim();
+  return useQuery({
+    queryKey: ["property-intelligence", "address-autocomplete", q, sessionToken ?? null, key],
+    queryFn: () =>
+      fetcher<AddressSuggestion[]>("/property-intelligence/address/autocomplete", {
+        method: "POST",
+        body: JSON.stringify({ input: q, session_token: sessionToken ?? null }),
+      }),
+    enabled: q.length >= 2,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useResolveAddress() {
+  const fetcher = useAuthedFetch();
+  return useMutation({
+    mutationFn: (payload: { place_id?: string | null; address?: string | null; session_token?: string | null }) =>
+      fetcher<AddressResolveResponse>("/property-intelligence/address/resolve", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+  });
+}
+
+export function usePropertyIntelligenceLookup() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: PropertyIntelligenceLookupRequest) =>
+      fetcher<PropertyIntelligenceSnapshot>("/property-intelligence/lookup", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["property-intelligence"] }),
+  });
+}
+
+export function useCreateAnalysisRun() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: AnalysisRunCreate) =>
+      fetcher<AnalysisRun>("/analysis-runs", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["analysis-runs"] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
+}
+
+export function useUpdateAnalysisRun() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: AnalysisRunUpdate }) =>
+      fetcher<AnalysisRun>(`/analysis-runs/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["analysis-runs"] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
+}
+
+export function useShareAnalysisRun() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) =>
+      fetcher<ShareAnalysisResponse>(`/analysis-runs/${runId}/share-to-client`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["analysis-runs"] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
+}
+
+export function useConvertAnalysisRunToPrequal() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ runId, payload }: { runId: string; payload: AnalysisRunPrequalRequest }) =>
+      fetcher<AnalysisRunPrequalResponse>(`/analysis-runs/${runId}/prequal-request`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["analysis-runs"] });
+      qc.invalidateQueries({ queryKey: ["prequal-requests"] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["loans"] });
+    },
+  });
+}
+
+export function useAnalysisRuns(filters?: {
+  client_id?: string | null;
+  loan_id?: string | null;
+  product?: AnalysisProduct | null;
+  tool_source?: AnalysisSource | null;
+  updated_since?: string | null;
+  limit?: number | null;
+  shared?: boolean;
+}) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  const qs = new URLSearchParams();
+  if (filters?.client_id) qs.set("client_id", filters.client_id);
+  if (filters?.loan_id) qs.set("loan_id", filters.loan_id);
+  if (filters?.product) qs.set("product", filters.product);
+  if (filters?.tool_source) qs.set("tool_source", filters.tool_source);
+  if (filters?.updated_since) qs.set("updated_since", filters.updated_since);
+  if (filters?.limit) qs.set("limit", String(filters.limit));
+  if (filters?.shared != null) qs.set("shared", String(filters.shared));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return useQuery({
+    queryKey: ["analysis-runs", filters ?? {}, key],
+    queryFn: () => fetcher<AnalysisRun[]>(`/analysis-runs${suffix}`).catch(() => [] as AnalysisRun[]),
+    retry: false,
+  });
+}
+
+export function useAdminPrequalRequests(status?: string | null) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return useQuery({
+    queryKey: ["prequal-requests", "admin", status ?? "all", key],
+    queryFn: () => fetcher<PrequalRequest[]>(`/admin/prequal-requests${qs}`).catch(() => [] as PrequalRequest[]),
+    staleTime: 30 * 1000,
+    retry: false,
+  });
+}
+
 // /credit/current?client_id=self — explicit "my own credit" lookup. Mirrors
 // desktop's useMyCredit. The plain useCreditCurrent (no scope) works for
 // any role; this version is the one to call from CLIENT-only flows so the
@@ -794,6 +962,23 @@ export function useSubmitPrequalRequest() {
   });
 }
 
+export function useAdminCreateManualPrequal() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: AdminPrequalCreate) =>
+      fetcher<PrequalRequest>("/admin/prequal-requests", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["prequal-requests"] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["fixFlipScenarios"] });
+    },
+  });
+}
+
 export function useAcceptPrequalOffer() {
   const fetcher = useAuthedFetch();
   const qc = useQueryClient();
@@ -831,13 +1016,14 @@ export function useDeclinePrequalOffer() {
 // All ported from QCDashboard/src/hooks/useApi.ts. Same endpoints,
 // same query-key shape. Used exclusively by the app/agent/* routes.
 
-export function useClients(scope?: ListScope) {
+export function useClients(scope?: ListScope, options?: { enabled?: boolean }) {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
   const qs = scope ? `?scope=${scope}` : "";
   return useQuery({
     queryKey: ["clients", scope ?? "auto", key],
     queryFn: () => fetcher<Client[]>(`/clients${qs}`),
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -1765,7 +1951,7 @@ export function useFlagDocument() {
   });
 }
 
-// ── AI Secretary ──────────────────────────────────────────────────────
+// ── Elara ──────────────────────────────────────────────────────
 
 export function useAIQuestions(loanId: string | null | undefined) {
   const fetcher = useAuthedFetch();

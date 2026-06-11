@@ -1,4 +1,4 @@
-// AI Intelligent Underwriter chat sheet (mobile).
+// Elara chat sheet (mobile).
 //
 // Default landing surface = the conversations LIST. The list is
 // DERIVED, not raw — exactly one Account thread row + one row per
@@ -215,7 +215,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
       setInput("");
       setStaged([]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "AI failed to respond.");
+      setError(e instanceof Error ? e.message : "Elara failed to respond.");
     }
   };
 
@@ -301,7 +301,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
           return;
         }
         case "request_prequalification": {
-          // AI Secretary path — agent says "Marcus is ready for prequal"
+          // Elara path — agent says "Marcus is ready for prequal"
           // → AI emits this action card → tap → fires the same endpoint
           // as the "Ready for prequal" button on /agent/client/[id].
           if (!action.client_id) return;
@@ -438,7 +438,7 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                 numberOfLines={1}
                 style={{ fontSize: 14, fontWeight: "800", color: t.ink, letterSpacing: -0.2 }}
               >
-                {showList ? "Conversations" : (activeTitle ?? "AI Intelligent Underwriter")}
+                {showList ? "Conversations" : (activeTitle ?? "Elara")}
               </Text>
               <Text
                 numberOfLines={1}
