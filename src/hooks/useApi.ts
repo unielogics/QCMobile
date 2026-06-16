@@ -21,6 +21,7 @@ import type {
   AIChatSendResponse,
   ClientLivingProfile,
   RequiredDocument,
+  CalendarActivityItem,
   CalendarEvent,
   DashboardReport,
   FredSeriesSummary,
@@ -647,7 +648,25 @@ export function useDashboardReport() {
 }
 
 // /calendar — agenda events (today + upcoming)
-export function useCalendar() {
+export interface CalendarQueryParams {
+  from?: string | null;
+  to?: string | null;
+  days?: number;
+  include_cancelled?: boolean;
+}
+
+function calendarQuery(params?: CalendarQueryParams & { limit?: number }): string {
+  const qs = new URLSearchParams();
+  if (params?.from) qs.set("from", params.from);
+  if (params?.to) qs.set("to", params.to);
+  if (params?.days != null) qs.set("days", String(params.days));
+  if (params?.include_cancelled != null) qs.set("include_cancelled", String(params.include_cancelled));
+  if (params?.limit != null) qs.set("limit", String(params.limit));
+  const query = qs.toString();
+  return query ? `?${query}` : "";
+}
+
+export function useCalendar(params?: CalendarQueryParams) {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
   // Gate on Clerk's `isLoaded`. When the user hits the Calendar tab
@@ -660,12 +679,24 @@ export function useCalendar() {
   // fetcher → resolves immediately.
   const { isLoaded } = useAuth();
   return useQuery({
-    queryKey: ["calendar", key, isLoaded],
-    queryFn: () => fetcher<CalendarEvent[]>("/calendar"),
+    queryKey: ["calendar", key, isLoaded, params ?? {}],
+    queryFn: () => fetcher<CalendarEvent[]>(`/calendar${calendarQuery(params)}`),
     enabled: isLoaded,
     // Borrower hits the tab expecting fresh status — emitter-driven
     // events (doc due, closing day, etc.) appear without a manual
     // refresh.
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useCalendarActivity(params?: CalendarQueryParams & { limit?: number }) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  const { isLoaded } = useAuth();
+  return useQuery({
+    queryKey: ["calendarActivity", key, isLoaded, params ?? {}],
+    queryFn: () => fetcher<CalendarActivityItem[]>(`/calendar/activity${calendarQuery(params)}`),
+    enabled: isLoaded,
     staleTime: 30 * 1000,
   });
 }
@@ -695,6 +726,7 @@ export function useUpdateCalendarEvent() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["calendar"] });
+      qc.invalidateQueries({ queryKey: ["calendarActivity"] });
     },
   });
 }
@@ -1615,6 +1647,7 @@ export function useCreateCalendarEvent() {
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["loanTodo", vars.loan_id] });
       qc.invalidateQueries({ queryKey: ["calendar"] });
+      qc.invalidateQueries({ queryKey: ["calendarActivity"] });
     },
   });
 }

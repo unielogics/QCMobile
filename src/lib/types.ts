@@ -512,6 +512,17 @@ export interface CalendarEvent {
   external_ref_id: string | null;
 }
 
+export interface CalendarActivityItem {
+  id: string;
+  loan_id: string | null;
+  client_id: string | null;
+  kind: string;
+  summary: string;
+  actor_label: string | null;
+  occurred_at: string;
+  payload: Record<string, unknown> | null;
+}
+
 // Reports/dashboard
 export interface StageBreakdown {
   stage: LoanStage;
