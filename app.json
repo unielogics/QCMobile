@@ -19,7 +19,7 @@
     "android": {
       "package": "com.qualifiedcommercial.mobile",
       "googleServicesFile": "./google-services.json",
-      "softwareKeyboardLayoutMode": "pan",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B1D3A"
