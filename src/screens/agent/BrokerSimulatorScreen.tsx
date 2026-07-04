@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Card, Pill, SectionLabel } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
@@ -9,7 +9,7 @@ import { Slider } from "@/design-system/Slider";
 import { QC_FMT } from "@/design-system/tokens";
 import { TopBar } from "@/components/TopBar";
 import { ClientSearchPicker } from "@/components/agent/ClientSearchPicker";
-import { RecentAnalysisRunsCard } from "@/components/agent/RecentAnalysisRunsCard";
+import { AnalysisRunFabMenu, AnalysisRunsList } from "@/components/agent/AnalysisRunsList";
 import { GoogleAddressInput, formatAddressParts, isAddressLookupReady } from "@/components/property/GoogleAddressInput";
 import {
   useAnalysisRuns,
@@ -35,7 +35,8 @@ import {
   type SimulatorInputs,
   type TransactionType,
 } from "@/lib/eligibility";
-import type { AddressParts, AnalysisProduct, AnalysisRun, Client, FredSeriesSummary, Loan, RecalcResponse } from "@/lib/types";
+import { creditDisplayFromFico, creditDisplayOverrideLabel } from "@/lib/creditDisplay";
+import type { AddressParts, AnalysisProduct, Client, FredSeriesSummary, Loan, RecalcResponse } from "@/lib/types";
 
 type Mode = "calculator" | "client";
 type CalculatorMode = "free" | "file";
@@ -130,18 +131,21 @@ function readProviderNumber(payload: Record<string, unknown> | null | undefined,
 
 export function BrokerSimulatorScreen() {
   const { t } = useTheme();
-  const params = useLocalSearchParams<{ clientId?: string }>();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ clientId?: string; new?: string; type?: string }>();
   const paramClientId = typeof params.clientId === "string" ? params.clientId : null;
+  const wantsNew = params.new === "1";
+  const startType = typeof params.type === "string" ? params.type : "";
   const { data: clients = [] } = useClients("mine");
   const { data: loans = [] } = useLoans("mine");
   const [mode, setMode] = useState<Mode>("client");
   const recentSince = useMemo(() => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), []);
-  const { data: simulatorRuns = [] } = useAnalysisRuns({
+  const { data: simulatorRuns = [], isLoading: simulatorRunsLoading } = useAnalysisRuns({
     tool_source: "simulator",
     updated_since: recentSince,
     limit: 50,
   });
-  const { data: recalcRuns = [] } = useAnalysisRuns({
+  const { data: recalcRuns = [], isLoading: recalcRunsLoading } = useAnalysisRuns({
     tool_source: "loan_recalc",
     updated_since: recentSince,
     limit: 50,
@@ -153,6 +157,58 @@ export function BrokerSimulatorScreen() {
         .slice(0, 50),
     [recalcRuns, simulatorRuns],
   );
+
+  useEffect(() => {
+    if (!wantsNew) return;
+    setMode(startType === "calculator" || startType === "file" ? "calculator" : "client");
+  }, [startType, wantsNew]);
+
+  const openWorkflow = (type: "client" | "calculator" | "file") => {
+    const qs = new URLSearchParams();
+    qs.set("new", "1");
+    qs.set("type", type);
+    if (paramClientId) qs.set("clientId", paramClientId);
+    router.push(`/agent/simulate?${qs.toString()}` as Href);
+  };
+
+  if (!wantsNew) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
+        <TopBar title="Simulate" />
+        <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+          <Text style={{ fontSize: 12, color: t.ink3 }}>Previous runs - last 30 days</Text>
+        </View>
+        <AnalysisRunsList
+          runs={recentRuns}
+          clients={clients}
+          loading={simulatorRunsLoading || recalcRunsLoading}
+          emptyText="No saved simulations or file recalculations in the last 30 days."
+        />
+        <AnalysisRunFabMenu
+          actions={[
+            {
+              label: "Client estimate",
+              description: "Link a borrower and estimate terms.",
+              icon: "user",
+              onPress: () => openWorkflow("client"),
+            },
+            {
+              label: "Broker calculator",
+              description: "Run pricing math from scratch.",
+              icon: "calc",
+              onPress: () => openWorkflow("calculator"),
+            },
+            {
+              label: "From funding file",
+              description: "Recalculate an owned funding file.",
+              icon: "layers",
+              onPress: () => openWorkflow("file"),
+            },
+          ]}
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
@@ -168,17 +224,20 @@ export function BrokerSimulatorScreen() {
         />
       </View>
       {mode === "calculator" ? (
-        <BrokerCalculator clients={clients} loans={loans} recentRuns={recentRuns} />
+        <BrokerCalculator clients={clients} loans={loans} initialMode={startType === "file" ? "file" : "free"} />
       ) : (
-        <ClientEstimate clients={clients} loans={loans} initialClientId={paramClientId} recentRuns={recentRuns} />
+        <ClientEstimate clients={clients} loans={loans} initialClientId={paramClientId} />
       )}
     </SafeAreaView>
   );
 }
 
-function BrokerCalculator({ clients, loans, recentRuns }: { clients: Client[]; loans: Loan[]; recentRuns: AnalysisRun[] }) {
+function BrokerCalculator({ clients, loans, initialMode }: { clients: Client[]; loans: Loan[]; initialMode: CalculatorMode }) {
   const { t } = useTheme();
-  const [calcMode, setCalcMode] = useState<CalculatorMode>("free");
+  const [calcMode, setCalcMode] = useState<CalculatorMode>(initialMode);
+  useEffect(() => {
+    setCalcMode(initialMode);
+  }, [initialMode]);
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 88 }} showsVerticalScrollIndicator={false}>
       <Segmented
@@ -188,12 +247,6 @@ function BrokerCalculator({ clients, loans, recentRuns }: { clients: Client[]; l
         ]}
         value={calcMode}
         onChange={setCalcMode}
-      />
-      <RecentAnalysisRunsCard
-        runs={recentRuns}
-        clients={clients}
-        title="Saved simulations - last 30 days"
-        emptyText="Saved simulator runs and file recalculations will appear here after you save, share, or create a prequalification."
       />
       {calcMode === "free" ? <FreeCalculation clients={clients} loans={loans} /> : <FromFundingFile loans={loans} />}
       <Text style={{ fontSize: 11, color: t.ink4, lineHeight: 16 }}>
@@ -324,11 +377,11 @@ function FreeCalculation({ clients, loans }: { clients: Client[]; loans: Loan[] 
         {selectedClient ? (
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
             {derivedFico != null ? (
-              <Pill bg={t.brandSoft} color={t.brand}>FICO {derivedFico}</Pill>
+              <Pill bg={t.brandSoft} color={t.brand}>{creditDisplayFromFico(derivedFico).shortLabel}</Pill>
             ) : overrideFico != null ? (
-              <Pill bg={t.warnBg} color={t.warn}>FICO {overrideFico} override</Pill>
+              <Pill bg={t.warnBg} color={t.warn}>{creditDisplayOverrideLabel(true)}</Pill>
             ) : (
-              <Pill bg={t.chip} color={t.ink3}>FICO needed for prequal</Pill>
+              <Pill bg={t.chip} color={t.ink3}>Credit needed for prequal</Pill>
             )}
             <Pill bg={t.chip} color={t.ink2}>{propertyCount} file{propertyCount === 1 ? "" : "s"}</Pill>
           </View>
@@ -336,7 +389,7 @@ function FreeCalculation({ clients, loans }: { clients: Client[]; loans: Loan[] 
         {selectedClient && derivedFico == null ? (
           <View style={{ marginTop: 10 }}>
             <Text style={{ fontSize: 11, fontWeight: "800", color: t.ink3, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
-              Prequal FICO override
+              Prequal credit override
             </Text>
             <TextInput
               value={overrideFicoText}
@@ -614,12 +667,10 @@ function ClientEstimate({
   clients,
   loans,
   initialClientId,
-  recentRuns,
 }: {
   clients: Client[];
   loans: Loan[];
   initialClientId: string | null;
-  recentRuns: AnalysisRun[];
 }) {
   const { t } = useTheme();
   const { data: fred } = useFredSeries();
@@ -771,24 +822,17 @@ function ClientEstimate({
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 88 }} showsVerticalScrollIndicator={false}>
-      <RecentAnalysisRunsCard
-        runs={recentRuns}
-        clients={clients}
-        title="Saved simulations - last 30 days"
-        emptyText="Saved client estimates will appear here after you save, share, or create a prequalification."
-      />
-
       <Card pad={14}>
         <SectionLabel>Client</SectionLabel>
         <ClientSearchPicker clients={clients} value={clientId} onChange={setClientId} />
         {selectedClient ? (
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
             {derivedFico != null ? (
-              <Pill bg={t.brandSoft} color={t.brand}>FICO {derivedFico}</Pill>
+              <Pill bg={t.brandSoft} color={t.brand}>{creditDisplayFromFico(derivedFico).shortLabel}</Pill>
             ) : overrideFico != null ? (
-              <Pill bg={t.warnBg} color={t.warn}>FICO {overrideFico} override</Pill>
+              <Pill bg={t.warnBg} color={t.warn}>{creditDisplayOverrideLabel(true)}</Pill>
             ) : (
-              <Pill bg={t.chip} color={t.ink3}>FICO needed</Pill>
+              <Pill bg={t.chip} color={t.ink3}>Credit needed</Pill>
             )}
             <Pill bg={t.chip} color={t.ink2}>{propertyCount} file{propertyCount === 1 ? "" : "s"}</Pill>
           </View>
@@ -796,7 +840,7 @@ function ClientEstimate({
         {selectedClient && derivedFico == null ? (
           <View style={{ marginTop: 10 }}>
             <Text style={{ fontSize: 11, fontWeight: "700", color: t.ink3, textTransform: "uppercase", letterSpacing: 0.6 }}>
-              Estimate FICO override
+              Estimate credit override
             </Text>
             <TextInput
               value={overrideFicoText}
@@ -902,7 +946,7 @@ function ClientEstimate({
         <Card pad={14}>
           <Text style={{ fontSize: 14, fontWeight: "800", color: t.ink }}>{eligibility.banner?.title ?? "Estimate blocked"}</Text>
           <Text style={{ fontSize: 12.5, color: t.ink3, lineHeight: 18, marginTop: 4 }}>
-            {eligibility.banner?.body ?? "Add a borrower FICO or valid override to estimate terms."}
+            {eligibility.banner?.body ?? "Add borrower credit verification or a valid override to estimate terms."}
           </Text>
         </Card>
       ) : result ? (

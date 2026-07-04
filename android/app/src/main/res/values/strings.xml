@@ -1,3 +1,4 @@
 <resources>
   <string name="app_name">Qualified Commercial</string>
+  <string name="qc_meetings_widget_description">Upcoming Qualified Commercial meetings</string>
 </resources>

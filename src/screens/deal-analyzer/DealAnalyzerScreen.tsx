@@ -7,13 +7,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams, usePathname, useRouter } from "expo-router";
+import { useLocalSearchParams, usePathname, useRouter, type Href } from "expo-router";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Card, Pill, SectionLabel } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
 import { KeyboardAware } from "@/components/KeyboardAware";
 import { ClientSearchPicker } from "@/components/agent/ClientSearchPicker";
-import { RecentAnalysisRunsCard } from "@/components/agent/RecentAnalysisRunsCard";
+import { AnalysisRunFabMenu, AnalysisRunsList } from "@/components/agent/AnalysisRunsList";
 import { GoogleAddressInput, formatAddressParts, isAddressLookupReady } from "@/components/property/GoogleAddressInput";
 import {
   useAnalysisRuns,
@@ -31,6 +31,7 @@ import {
   useUpdateFixFlipScenario,
   useClosingCostTiers,
 } from "@/hooks/useApi";
+import { creditDisplayFromFico, creditDisplayOverrideLabel } from "@/lib/creditDisplay";
 import { analyzeFixFlip } from "@/lib/fixFlip/calc";
 import type { AddressParts } from "@/lib/types";
 import type { ExperienceTier, FixFlipInputs } from "@/lib/fixFlip/types";
@@ -89,9 +90,10 @@ type T = ReturnType<typeof useTheme>["t"];
 export function DealAnalyzerScreen() {
   const { t } = useTheme();
   const router = useRouter();
-  const params = useLocalSearchParams<{ clientId?: string }>();
+  const params = useLocalSearchParams<{ clientId?: string; new?: string; type?: string }>();
   const pathname = usePathname();
   const paramClientId = typeof params.clientId === "string" ? params.clientId : null;
+  const wantsNew = params.new === "1";
   const { data: me } = useCurrentUser();
   const isAgentRoute = pathname.startsWith("/agent/");
   const canLinkClient =
@@ -115,7 +117,7 @@ export function DealAnalyzerScreen() {
   const convertAnalysis = useConvertAnalysisRunToPrequal();
   const propertyLookup = usePropertyIntelligenceLookup();
   const recentSince = useMemo(() => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), []);
-  const { data: recentRuns = [] } = useAnalysisRuns({
+  const { data: recentRuns = [], isLoading: recentRunsLoading } = useAnalysisRuns({
     tool_source: "deal_analyzer",
     updated_since: recentSince,
     limit: 50,
@@ -355,7 +357,7 @@ export function DealAnalyzerScreen() {
       return;
     }
     if (effectiveCredit == null) {
-      setPrequalFlash("Add a borrower FICO or analyzer override before creating a prequalification.");
+      setPrequalFlash("Add borrower credit verification or an analyzer override before creating a prequalification.");
       return;
     }
     if (result.validationErrors.length) {
@@ -391,8 +393,49 @@ export function DealAnalyzerScreen() {
     }
   };
 
+  const openNewAnalyzer = () => {
+    const qs = new URLSearchParams();
+    qs.set("new", "1");
+    qs.set("type", "fix_flip");
+    if (paramClientId) qs.set("clientId", paramClientId);
+    router.push(`${pathname}?${qs.toString()}` as Href);
+  };
+
   const gradeC = (g: string) =>
     g === "Excellent" || g === "Good" ? t.brand : g === "Fair" || g === "Thin" ? t.warn : t.danger;
+
+  if (canLinkClient && !wantsNew) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ fontSize: 16, fontWeight: "900", color: t.ink }}>Deal Analyzer</Text>
+            <Text style={{ fontSize: 11.5, color: t.ink3, marginTop: 1 }}>Previous runs - last 30 days</Text>
+          </View>
+          <Pressable onPress={() => router.back()} hitSlop={8} accessibilityLabel="Close">
+            <Icon name="x" size={18} color={t.ink} />
+          </Pressable>
+        </View>
+        <AnalysisRunsList
+          runs={recentRuns}
+          clients={clients}
+          loading={recentRunsLoading}
+          emptyText="No saved Deal Analyzer runs in the last 30 days."
+        />
+        <AnalysisRunFabMenu
+          actions={[
+            {
+              label: "Fix & Flip analyzer",
+              description: "Start a new renovation analysis.",
+              icon: "hammer",
+              onPress: openNewAnalyzer,
+            },
+          ]}
+        />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top"]}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
@@ -431,9 +474,9 @@ export function DealAnalyzerScreen() {
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                 <Text style={{ fontSize: 12, color: t.ink3 }}>Credit</Text>
                 {derivedCredit != null ? (
-                  <Pill bg={t.brandSoft} color={t.brand}>FICO {derivedCredit}</Pill>
+                  <Pill bg={t.brandSoft} color={t.brand}>{creditDisplayFromFico(derivedCredit).shortLabel}</Pill>
                 ) : overrideFico != null ? (
-                  <Pill bg={t.warnBg} color={t.warn}>FICO {overrideFico} override</Pill>
+                  <Pill bg={t.warnBg} color={t.warn}>{creditDisplayOverrideLabel(true)}</Pill>
                 ) : (
                   <Pill bg={t.chip} color={t.ink3}>Not on file</Pill>
                 )}
@@ -443,7 +486,7 @@ export function DealAnalyzerScreen() {
               {derivedCredit == null ? (
                 <View style={{ marginTop: 10 }}>
                   <Text style={{ fontSize: 11, fontWeight: "700", color: t.ink3, textTransform: "uppercase", letterSpacing: 0.6 }}>
-                    Analyzer FICO override
+                    Analyzer credit override
                   </Text>
                   <TextInput
                     value={overrideFicoText}
@@ -459,15 +502,6 @@ export function DealAnalyzerScreen() {
                 </View>
               ) : null}
             </Card>
-          ) : null}
-
-          {canLinkClient ? (
-            <RecentAnalysisRunsCard
-              runs={recentRuns}
-              clients={clients}
-              title="Saved analyzer runs - last 30 days"
-              emptyText="Saved Deal Analyzer runs will appear here after you save, share, or create a prequalification."
-            />
           ) : null}
 
           {step === "Property" ? (
@@ -560,9 +594,9 @@ export function DealAnalyzerScreen() {
             <Card pad={14}>
               <SectionLabel>Borrower profile</SectionLabel>
               <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-                <Text style={{ fontSize: 12, color: t.ink3 }}>Credit score</Text>
+                <Text style={{ fontSize: 12, color: t.ink3 }}>Credit profile</Text>
                 {effectiveCredit != null
-                  ? <Pill bg={derivedCredit != null ? t.brandSoft : t.warnBg} color={derivedCredit != null ? t.brand : t.warn}>{String(effectiveCredit)}{derivedCredit == null ? " override" : ""}</Pill>
+                  ? <Pill bg={derivedCredit != null ? t.brandSoft : t.warnBg} color={derivedCredit != null ? t.brand : t.warn}>{derivedCredit != null ? creditDisplayFromFico(derivedCredit).shortLabel : creditDisplayOverrideLabel(true)}</Pill>
                   : <Pill bg={t.chip} color={t.ink3}>Not on file</Pill>}
                 <Text style={{ fontSize: 12, color: t.ink3, marginLeft: 8 }}>Experience</Text>
                 <Pill bg={t.chip} color={t.ink2}>{EXP_LABEL[derivedExperience]}</Pill>

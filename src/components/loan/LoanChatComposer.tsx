@@ -97,21 +97,31 @@ export function LoanChatComposer({ loanId, onSent, viewerRole }: Props) {
   const submit = async () => {
     const text = draft.trim();
     if ((!text && !staged) || send.isPending) return;
+    const att = staged;
+    setDraft("");
+    setStaged(null);
     try {
       const res = await send.mutateAsync({
         loanId,
-        body: text || (staged ? `Uploaded: ${staged.name}` : ""),
+        body: text || (att ? `Uploaded: ${att.name}` : ""),
         mode,
-        attachment_document_id: staged?.document_id ?? null,
+        attachment_document_id: att?.document_id ?? null,
+        optimistic_from_role:
+          mode === "broker_question"
+            ? "broker_internal"
+            : viewerRole === "broker"
+              ? "broker"
+              : "super_admin",
+        optimistic_client_visible: mode !== "broker_question",
       });
-      setDraft("");
-      setStaged(null);
       if (res.paused_until) {
         setFlash("Elara paused for ~1h while you reply directly.");
         setTimeout(() => setFlash(null), 4000);
       }
       onSent?.(mode, res.paused_until);
     } catch (e) {
+      setDraft(text);
+      if (att) setStaged(att);
       setFlash(e instanceof Error ? e.message : "Send failed.");
       setTimeout(() => setFlash(null), 4000);
     }
@@ -225,7 +235,6 @@ export function LoanChatComposer({ loanId, onSent, viewerRole }: Props) {
           }
           placeholderTextColor={t.ink4}
           multiline
-          editable={!send.isPending}
           style={{
             flex: 1,
             minHeight: 40,

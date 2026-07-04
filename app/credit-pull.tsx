@@ -31,8 +31,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Card, Pill, QButton, SectionLabel } from "@/design-system/primitives";
 import { Icon } from "@/design-system/Icon";
-import { useCreditSummary, useCurrentUser, useMyClient, useMyCredit, useStartCreditPull } from "@/hooks/useApi";
+import { PaymentAuthorizationGate } from "@/components/PaymentAuthorizationGate";
+import { useCreditPullAccess, useCreditSummary, useCurrentUser, useMyClient, useMyCredit, useStartCreditPull } from "@/hooks/useApi";
 import { ApiError } from "@/lib/api";
+import { creditDisplayFromCredit } from "@/lib/creditDisplay";
 import type { CreditSummaryProduct } from "@/lib/types";
 
 type Stage = "form" | "review" | "consent" | "pulling" | "done";
@@ -113,7 +115,16 @@ export default function CreditPull() {
   const start = useStartCreditPull();
   const { data: user } = useCurrentUser();
   const { data: client } = useMyClient();
+  const { data: creditAccess } = useCreditPullAccess();
   const { data: existingCredit } = useMyCredit();
+
+  if (creditAccess?.requires_payment_authorization && !creditAccess.payment_authorized) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
+        <PaymentAuthorizationGate />
+      </SafeAreaView>
+    );
+  }
 
   // Derive the effective mode from the URL param OR from observed state:
   // a valid (non-expired) pull on file becomes "refresh"; an expired pull
@@ -140,6 +151,7 @@ export default function CreditPull() {
   // re-pull the same identity and burn another bureau request.
   const hasNoScorePull = !!existingCredit && existingCredit.fico == null && !existingCredit.is_expired;
   const showsNoScoreGate = hasNoScorePull && params.mode !== "refresh";
+  const existingCreditDisplay = creditDisplayFromCredit(existingCredit);
 
   const [stage, setStage] = useState<Stage>("form");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -272,10 +284,12 @@ export default function CreditPull() {
           {showsValidPullGate ? (
             <Card pad={16}>
               <SectionLabel>You already have a valid pull</SectionLabel>
-              <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12, marginTop: 4 }}>
-                <Text style={{ fontSize: 32, fontWeight: "800", color: t.ink, fontVariant: ["tabular-nums"] }}>
-                  {existingCredit?.fico ?? "—"}
-                </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 8 }}>
+                <View style={{ borderRadius: 999, backgroundColor: existingCreditDisplay.tone === "success" ? t.profitBg : existingCreditDisplay.tone === "danger" ? t.dangerBg : t.warnBg, paddingHorizontal: 12, paddingVertical: 7 }}>
+                  <Text style={{ fontSize: 14, fontWeight: "800", color: existingCreditDisplay.tone === "success" ? t.profit : existingCreditDisplay.tone === "danger" ? t.danger : t.warn }}>
+                    {existingCreditDisplay.label}
+                  </Text>
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 12, color: t.ink2 }}>
                     Pulled{" "}

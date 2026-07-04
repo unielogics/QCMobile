@@ -197,6 +197,10 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
     const text = raw.trim();
     if ((!text && staged.length === 0) || sendMessage.isPending) return;
     setError(null);
+    const priorInput = input;
+    const priorStaged = staged;
+    setInput("");
+    setStaged([]);
     try {
       let threadId = activeThreadId;
       if (!threadId) {
@@ -212,9 +216,9 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
         body: text,
         attachment_tokens: tokens.length > 0 ? tokens : null,
       });
-      setInput("");
-      setStaged([]);
     } catch (e) {
+      setInput(priorInput);
+      setStaged(priorStaged);
       setError(e instanceof Error ? e.message : "Elara failed to respond.");
     }
   };
@@ -714,7 +718,6 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
                   onChangeText={setInput}
                   placeholder={staged.length > 0 ? "Add a note (optional)…" : "Message…"}
                   placeholderTextColor={t.ink4}
-                  editable={!sendMessage.isPending}
                   onSubmitEditing={() => send(input)}
                   returnKeyType="send"
                   multiline

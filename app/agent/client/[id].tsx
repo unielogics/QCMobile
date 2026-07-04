@@ -16,6 +16,7 @@ import { PauseBanner } from "@/components/loan/PauseBanner";
 import { ContextMenu, type ContextMenuItem } from "@/components/agent/ContextMenu";
 import { ReassignAgentSheet } from "@/components/agent/ReassignAgentSheet";
 import { ClientStageOptions } from "@/lib/enums.generated";
+import { creditDisplayFromFico } from "@/lib/creditDisplay";
 import type { ClientStage } from "@/lib/enums.generated";
 import type { Client } from "@/lib/types";
 
@@ -192,7 +193,7 @@ export default function AgentClientRoute() {
     );
   };
 
-  const primaryAction =
+  const readyForLendingAction =
     client.stage === "lead" && client.lead_promotion_status !== "agent_requested_review"
       ? {
           label: "Ready for lending",
@@ -200,7 +201,10 @@ export default function AgentClientRoute() {
           onPress: onRequestPrequal,
           loading: busy === "prequal",
         }
-      : client.stage === "verified"
+      : null;
+
+  const primaryAction =
+    client.stage === "verified"
         ? {
             label: "Start funding",
             icon: "bolt" as const,
@@ -280,6 +284,16 @@ export default function AgentClientRoute() {
               hasPhone={!!client.phone}
               hasEmail={!!client.email}
             />
+            {readyForLendingAction ? (
+              <ActionButton
+                label={readyForLendingAction.label}
+                icon={readyForLendingAction.icon}
+                onPress={readyForLendingAction.onPress}
+                loading={readyForLendingAction.loading}
+                primary
+                wide
+              />
+            ) : null}
             <NurtureActivity clientId={client.id} />
           </>
         ) : null}
@@ -380,8 +394,8 @@ export default function AgentClientRoute() {
           />
         ) : null}
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: primaryAction ? 10 : 0 }}>
-          <ActionButton label="Call" icon="bolt" onPress={onCall} disabled={!client.phone} compact />
-          <ActionButton label="Message" icon="chat" onPress={onMessage} loading={busy === "message"} compact />
+          <ActionButton label="Call" icon="bolt" onPress={onCall} disabled={!client.phone} compact tone="call" />
+          <ActionButton label="Message" icon="chat" onPress={onMessage} loading={busy === "message"} compact tone="message" />
           <ActionButton
             label="Analyze"
             icon="calc"
@@ -441,6 +455,7 @@ function AgentRelationshipWorkspace({
   const side = client.client_type ?? "buyer";
   const isSeller = side === "seller";
   const stage = client.stage ?? "lead";
+  const creditDisplay = creditDisplayFromFico(client.fico);
   const actions = isSeller
     ? [
         stage === "lead" ? "Confirm listing timeline and target net." : "Update seller timeline after each funding milestone.",
@@ -448,7 +463,7 @@ function AgentRelationshipWorkspace({
         activeLoanCount === 0 ? "Qualify buyer financing path before handoff." : "Coordinate offer and funding conditions.",
       ]
     : [
-        client.fico ? "Confirm buy box, budget, and close date." : "Ask client to complete credit readiness.",
+        creditDisplay.verified ? "Confirm buy box, budget, and close date." : "Ask client to complete credit readiness.",
         totalDocs === 0 ? "Collect intake, bank statements, entity docs, and property facts." : "Review received docs before handoff.",
         activeLoanCount === 0 ? "Move to lending once verified." : "Coordinate borrower conditions with funding updates.",
       ];
@@ -473,7 +488,7 @@ function AgentRelationshipWorkspace({
       <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
         <MiniStat label="Files" value={activeLoanCount ? `${activeLoanCount}/${loanCount}` : "None"} />
         <MiniStat label="Docs" value={`${verifiedDocs}/${totalDocs || 0}`} />
-        <MiniStat label="FICO" value={client.fico ? String(client.fico) : "New"} />
+        <MiniStat label="Credit" value={creditDisplay.shortLabel} />
       </View>
 
       <View style={{ gap: 8, marginTop: 14 }}>
@@ -510,7 +525,7 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 }
 
 function ActionButton({
-  label, icon, onPress, primary, loading, disabled, wide, compact,
+  label, icon, onPress, primary, loading, disabled, wide, compact, tone,
 }: {
   label: string;
   icon: "bolt" | "chat" | "check" | "vault" | "calc" | "sliders";
@@ -520,11 +535,13 @@ function ActionButton({
   disabled?: boolean;
   wide?: boolean;
   compact?: boolean;
+  tone?: "call" | "message";
 }) {
   const { t } = useTheme();
-  const bg = primary ? t.brand : t.surface2;
-  const fg = primary ? "#fff" : t.ink;
-  const borderColor = primary ? t.brand : t.line;
+  const toneBg = tone === "call" ? "#16A34A" : tone === "message" ? "#2563EB" : null;
+  const bg = primary ? t.brand : toneBg ?? t.surface2;
+  const fg = primary || toneBg ? "#fff" : t.ink;
+  const borderColor = primary ? t.brand : toneBg ?? t.line;
   return (
     <Pressable
       onPress={onPress}

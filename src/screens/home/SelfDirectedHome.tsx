@@ -34,6 +34,7 @@ import {
   useMyCredit,
 } from "@/hooks/useApi";
 import { Role } from "@/lib/enums.generated";
+import { creditDisplayFromCredit } from "@/lib/creditDisplay";
 import type { Loan } from "@/lib/types";
 import { TopBar } from "@/components/TopBar";
 import { AIChatSheet } from "@/components/sheets/AIChatSheet";
@@ -405,7 +406,8 @@ function KpiTile({
 // ── Pro Terms (CLIENT only) ─────────────────────────────────────────────
 function ProTermsCard({ credit, onPress }: { credit: { fico: number | null } | null | undefined; onPress: () => void }) {
   const { t, isDark } = useTheme();
-  const unlocked = !!credit && !!credit.fico;
+  const creditDisplay = creditDisplayFromCredit(credit);
+  const unlocked = creditDisplay.verified && creditDisplay.tone !== "danger";
   return (
     <Card pad={14} style={{ marginBottom: 20, backgroundColor: unlocked ? t.profitBg : t.dangerBg, borderColor: unlocked ? `${t.profit}40` : `${t.danger}40` }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
@@ -418,7 +420,7 @@ function ProTermsCard({ credit, onPress }: { credit: { fico: number | null } | n
           </Text>
           <Text style={{ fontSize: 12, color: t.ink2, marginTop: 1, lineHeight: 16 }}>
             {unlocked
-              ? `FICO ${credit!.fico} · valid through ${(credit as any)?.expires_at ? new Date((credit as any).expires_at).toLocaleDateString() : "—"}`
+              ? `${creditDisplay.label} · valid through ${(credit as any)?.expires_at ? new Date((credit as any).expires_at).toLocaleDateString() : "—"}`
               : "One soft pull unlocks all applications for 90 days · no score impact."}
           </Text>
         </View>

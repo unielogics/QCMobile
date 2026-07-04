@@ -8,6 +8,7 @@ import { Icon } from "@/design-system/Icon";
 import { useCreditCurrent, useMe } from "@/hooks/useApi";
 import { Role } from "@/lib/enums.generated";
 import { TopBar } from "@/components/TopBar";
+import { creditDisplayFromCredit } from "@/lib/creditDisplay";
 import { openSystemNotificationSettings, usePushRegistration } from "@/lib/notifications";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -30,6 +31,7 @@ export default function Profile() {
   const { signOut } = useAuth();
   const { data: user } = useMe();
   const { data: credit } = useCreditCurrent();
+  const creditDisplay = creditDisplayFromCredit(credit);
   const push = usePushRegistration();
   const isClient = user?.role === Role.CLIENT;
   void _toggle;
@@ -133,7 +135,7 @@ export default function Profile() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
-                      <Text style={{ fontSize: 17, fontWeight: "700", letterSpacing: -0.3, color: t.ink }}>{credit.fico ?? "—"}</Text>
+                      <Text style={{ fontSize: 17, fontWeight: "700", letterSpacing: -0.3, color: creditDisplay.tone === "success" ? t.profit : creditDisplay.tone === "danger" ? t.danger : t.warn }}>{creditDisplay.label}</Text>
                       <Text style={{ fontSize: 11, fontWeight: "700", color: t.profit, letterSpacing: 0.4, textTransform: "uppercase" }}>Verified</Text>
                     </View>
                     <Text style={{ fontSize: 11, color: t.ink3, marginTop: 2 }}>

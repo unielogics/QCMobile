@@ -7,6 +7,12 @@ import type {
   RecalcResponse,
   CreditPullStatus,
   CreditSummary,
+  BillingAddress,
+  PaymentAuthorizationStatusRead,
+  PaymentAuthorizationStartResponse,
+  PaymentAuthorizationCompleteResponse,
+  SetupIntentResponse,
+  CreditPullAccessRead,
   User,
   Client,
   Deal,
@@ -40,6 +46,7 @@ import type {
   AnalysisRunPrequalResponse,
   AnalysisRunUpdate,
   BrokerSettings,
+  AgentSettingsRead,
   EngagementSignal,
   FunnelMetrics,
   ListScope,
@@ -160,6 +167,7 @@ export function useLoan(loanId: string | null | undefined) {
 export function useCreditCurrent() {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
+  const access = useCreditPullAccess();
   // Gate on Clerk readiness — useAuthedFetch returns a never-resolving
   // promise while Clerk is still loading, which would otherwise leave
   // this query stuck in `pending` forever for any screen that mounts
@@ -168,7 +176,7 @@ export function useCreditCurrent() {
   return useQuery({
     queryKey: ["credit-current", key],
     queryFn: () => fetcher<CreditPullStatus | null>("/credit/current"),
-    enabled: isLoaded,
+    enabled: isLoaded && (access.data ? access.data.can_run_credit : false),
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
     staleTime: 30 * 1000,
@@ -178,10 +186,11 @@ export function useCreditCurrent() {
 export function useCurrentCredit(clientId: string | null | undefined) {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
+  const access = useCreditPullAccess();
   return useQuery({
     queryKey: ["credit", clientId ?? null, key],
     queryFn: () => fetcher<CreditPullStatus | null>(`/credit/current?client_id=${encodeURIComponent(clientId!)}`),
-    enabled: !!clientId,
+    enabled: !!clientId && (access.data ? access.data.can_run_credit : false),
     staleTime: 30 * 1000,
   });
 }
@@ -205,10 +214,85 @@ export function useMyClient() {
 export function useCreditSummary(pullId: string | null | undefined) {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
+  const access = useCreditPullAccess();
   return useQuery({
     queryKey: ["credit-summary", pullId, key],
     queryFn: () => fetcher<CreditSummary>(`/credit/pulls/${pullId}/summary`),
-    enabled: !!pullId,
+    enabled: !!pullId && (access.data ? access.data.can_run_credit : false),
+  });
+}
+
+export function useCreditPullAccess() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  const { isLoaded } = useAuth();
+  return useQuery({
+    queryKey: ["credit-pull-access", key],
+    queryFn: () => fetcher<CreditPullAccessRead>("/credit/pull-access"),
+    enabled: isLoaded,
+    staleTime: 30 * 1000,
+  });
+}
+
+export function usePaymentAuthorizationStatus() {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  const { isLoaded } = useAuth();
+  return useQuery({
+    queryKey: ["payment-authorization-status", key],
+    queryFn: () => fetcher<PaymentAuthorizationStatusRead>("/billing/payment-authorization/status"),
+    enabled: isLoaded,
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useStartPaymentAuthorization() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetcher<PaymentAuthorizationStartResponse>("/billing/payment-authorization/start", {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["payment-authorization-status"] }),
+  });
+}
+
+export function useCreateSetupIntent() {
+  const fetcher = useAuthedFetch();
+  return useMutation({
+    mutationFn: (payload: { authorization_id?: string; billing?: BillingAddress }) =>
+      fetcher<SetupIntentResponse>("/billing/setup-intents", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+  });
+}
+
+export function useCompletePaymentAuthorization() {
+  const fetcher = useAuthedFetch();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      authorization_id: string;
+      setup_intent_id: string;
+      typed_name: string;
+      esign_consent: boolean;
+      payment_terms_consent: boolean;
+      signature_data_url: string;
+      billing: BillingAddress;
+      device_metadata?: Record<string, unknown>;
+    }) =>
+      fetcher<PaymentAuthorizationCompleteResponse>("/billing/payment-authorization/complete", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["payment-authorization-status"] });
+      qc.invalidateQueries({ queryKey: ["credit-pull-access"] });
+      qc.invalidateQueries({ queryKey: ["credit-current"] });
+    },
   });
 }
 
@@ -1059,6 +1143,17 @@ export function useClients(scope?: ListScope, options?: { enabled?: boolean }) {
   });
 }
 
+export function useUsers(options?: { enabled?: boolean }) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["users", key],
+    queryFn: () => fetcher<User[]>("/users").catch(() => [] as User[]),
+    enabled: options?.enabled ?? true,
+    retry: false,
+  });
+}
+
 export function useClient(clientId: string | null | undefined) {
   const fetcher = useAuthedFetch();
   const key = useCacheKey();
@@ -1113,6 +1208,17 @@ export function useBrokerSettings() {
   return useQuery({
     queryKey: ["brokerSettings", key],
     queryFn: () => fetcher<BrokerSettings>("/me/broker-settings"),
+    retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
+  });
+}
+
+export function useAgentSettings(options?: { enabled?: boolean }) {
+  const fetcher = useAuthedFetch();
+  const key = useCacheKey();
+  return useQuery({
+    queryKey: ["agentSettings", key],
+    queryFn: () => fetcher<AgentSettingsRead>("/me/broker-settings"),
+    enabled: options?.enabled ?? true,
     retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
   });
 }
@@ -1445,7 +1551,7 @@ import {
   mockExperienceMode, type ExperienceModeState, type ExperienceMode,
   mockParsedCredit, type ParsedCreditReport,
   mockAIQuestions, type AIQuestion,
-  mockLoanWorkspace, type LoanWorkspace, type LoanChatMessage, type DealChatMode,
+  mockLoanWorkspace, type LoanWorkspace, type LoanChatMessage, type DealChatMode, type DealChatRole,
   mockLoanCriteria, type LoanCriteria,
 } from "@/lib/mocks";
 
@@ -1483,7 +1589,9 @@ export function useLoanChat(loanId: string | null | undefined) {
 }
 
 export interface LoanChatSendResponse {
-  message: LoanChatMessage;
+  message: LoanChatMessage | null;
+  ai_reply?: LoanChatMessage | null;
+  kind?: string;
   paused_until: string | null;
 }
 
@@ -1582,20 +1690,67 @@ export function useSendLoanChat() {
       body,
       mode,
       attachment_document_id,
+      optimistic_from_role,
+      optimistic_client_visible,
     }: {
       loanId: string;
       body: string;
       mode: DealChatMode;
       attachment_document_id?: string | null;
+      optimistic_from_role?: DealChatRole;
+      optimistic_client_visible?: boolean;
     }) =>
       fetcher<LoanChatSendResponse>(`/loans/${loanId}/chat`, {
         method: "POST",
         body: JSON.stringify({ body, mode, attachment_document_id }),
       }),
-    onSuccess: (_, vars) => {
+    onMutate: async (vars) => {
+      if (vars.mode === "instruct" || vars.mode === "broker_suggestion") return null;
+      const optimisticId = `local-${Date.now()}`;
+      const role = vars.optimistic_from_role ?? (vars.mode === "broker_question" ? "broker_internal" : "client");
+      const optimistic: LoanChatMessage = {
+        id: optimisticId,
+        body: vars.body,
+        from_role: role,
+        from_user_id: null,
+        from_name: "You",
+        client_visible: vars.optimistic_client_visible ?? vars.mode !== "broker_question",
+        created_at: new Date().toISOString(),
+        attachment: vars.attachment_document_id
+          ? { document_id: vars.attachment_document_id, name: "Attachment" }
+          : null,
+      };
+      qc.setQueriesData<LoanChatMessage[]>(
+        { queryKey: ["loanChat", vars.loanId] },
+        (old) => (old ? [...old, optimistic] : [optimistic])
+      );
+      return { optimisticId };
+    },
+    onSuccess: (res, vars, ctx) => {
+      if (ctx?.optimisticId) {
+        qc.setQueriesData<LoanChatMessage[]>(
+          { queryKey: ["loanChat", vars.loanId] },
+          (old) => {
+            if (!old) return old;
+            const withoutOptimistic = old.filter((m) => m.id !== ctx.optimisticId);
+            const next = res.message ? [...withoutOptimistic, res.message] : withoutOptimistic;
+            if (res.ai_reply && !next.some((m) => m.id === res.ai_reply?.id)) {
+              next.push(res.ai_reply);
+            }
+            return next;
+          }
+        );
+      }
       qc.invalidateQueries({ queryKey: ["loanChat", vars.loanId] });
       qc.invalidateQueries({ queryKey: ["loanWorkspace", vars.loanId] });
       qc.invalidateQueries({ queryKey: ["activities", vars.loanId] });
+    },
+    onError: (_err, vars, ctx) => {
+      if (!ctx?.optimisticId) return;
+      qc.setQueriesData<LoanChatMessage[]>(
+        { queryKey: ["loanChat", vars.loanId] },
+        (old) => old?.filter((m) => m.id !== ctx.optimisticId)
+      );
     },
   });
 }
@@ -1634,18 +1789,19 @@ export function useCreateCalendarEvent() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: {
-      loan_id: string;
+      loan_id?: string | null;
       kind: string;
       title: string;
       description?: string | null;
       who?: string | null;
       starts_at: string;
       duration_min?: number | null;
+      priority?: "low" | "medium" | "high" | null;
       owner_user_id?: string | null;
     }) =>
       fetcher(`/calendar`, { method: "POST", body: JSON.stringify(payload) }),
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: ["loanTodo", vars.loan_id] });
+      if (vars.loan_id) qc.invalidateQueries({ queryKey: ["loanTodo", vars.loan_id] });
       qc.invalidateQueries({ queryKey: ["calendar"] });
       qc.invalidateQueries({ queryKey: ["calendarActivity"] });
     },

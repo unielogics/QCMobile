@@ -481,6 +481,8 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
         body: text || (att ? `Uploaded: ${att.name}` : ""),
         mode: "chat",
         attachment_document_id: att?.document_id ?? null,
+        optimistic_from_role: "client",
+        optimistic_client_visible: true,
       });
     } catch (err) {
       // Restore the draft + attachment so the user can retry.
@@ -594,7 +596,6 @@ function ChatPane({ loanId, dealId }: { loanId: string; dealId: string }) {
           placeholder="Ask about this loan…"
           placeholderTextColor={t.ink3}
           multiline
-          editable={!send.isPending}
           style={{
             flex: 1, fontSize: 14, color: t.ink,
             backgroundColor: t.surface2, borderWidth: 1, borderColor: t.line,
