@@ -32,6 +32,11 @@ import {
 import * as DocumentPicker from "expo-document-picker";
 import { useRouter, type Href } from "expo-router";
 import { hasBackend } from "@/lib/featureFlags";
+import {
+  apiErrorCode,
+  apiErrorFileId,
+  PASSWORD_PROTECTED_PDF_UPLOAD_CODE,
+} from "@/lib/api";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/design-system/ThemeProvider";
 import { Icon } from "@/design-system/Icon";
@@ -218,8 +223,30 @@ export function AIChatSheet({ visible, onClose, context, initialThreadId }: Prop
       });
     } catch (e) {
       setInput(priorInput);
-      setStaged(priorStaged);
-      setError(e instanceof Error ? e.message : "Elara failed to respond.");
+      // The API validates attachment bytes when the message is sent. Remove
+      // only the object it rejected so another valid PDF in the same message
+      // remains staged. Merge with the current state as well: a picker that
+      // resolved while the request was in flight must not lose its new file.
+      const errorCode = apiErrorCode(e);
+      const rejectedFileId = apiErrorFileId(e);
+      const isLockedPdf = errorCode === PASSWORD_PROTECTED_PDF_UPLOAD_CODE;
+      const rejectedFile = isLockedPdf && rejectedFileId
+        ? priorStaged.find((item) => item.document_id === rejectedFileId)
+        : undefined;
+      setStaged((current) => {
+        const retryable = isLockedPdf && rejectedFileId
+          ? priorStaged.filter((item) => item.document_id !== rejectedFileId)
+          : priorStaged;
+        const merged = new Map(retryable.map((item) => [item.document_id, item]));
+        for (const item of current) {
+          if (item.document_id !== rejectedFileId) merged.set(item.document_id, item);
+        }
+        return [...merged.values()];
+      });
+      const message = e instanceof Error ? e.message : "Elara failed to respond.";
+      setError(rejectedFile
+        ? `Locked PDF: ${rejectedFile.name}. ${message}`
+        : message);
     }
   };
 
