@@ -54,7 +54,6 @@ export default function Profile() {
           : "Awaiting permission…";
 
   const ACCOUNT_ROWS: AccountRow[] = [
-    { label: "Linked Banks · Plaid", desc: "3 connected", icon: "shield" },
     { label: "Investor Profile", desc: "Tier II · LLC structures", icon: "user" },
     { label: "Notifications", desc: notifDesc, icon: "bell", onPress: openSystemNotificationSettings },
     { label: "Two-Factor Auth", desc: "On · Authenticator app", icon: "key" },
